@@ -10,6 +10,9 @@ def create_app(config_class=Config):
     app.config.from_object(config_class)
     os.makedirs(app.config["INSPECTIONS_DIR"], exist_ok=True)
 
+    from . import filters
+    filters.register(app)
+
     from .inspections import bp as inspections_bp
     app.register_blueprint(inspections_bp)
 

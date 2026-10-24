@@ -6,16 +6,18 @@ review) can add their outputs next to the uploaded media:
     data/inspections/<inspection_id>/
         inspection.json     metadata + per-module status
         media/              uploaded video or photos
+        preprocess/         M2 output: frames + preprocess.json
 """
 import json
 import os
+import time
 import uuid
 from datetime import datetime, timezone
 
 from flask import current_app
 from werkzeug.utils import secure_filename
 
-STAGES = ["upload", "opencv", "vlm", "agent", "review"]
+STAGES = ["upload", "preprocess", "analysis", "vlm", "agent", "review"]
 
 
 class UploadError(ValueError):
@@ -115,11 +117,50 @@ def save(record: dict) -> None:
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(record, fh, indent=2)
+    for attempt in range(5):            # Windows refuses to replace a file another thread is reading
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            time.sleep(0.05 * (attempt + 1))
     os.replace(tmp, path)
 
 
 def load(inspection_id: str) -> dict | None:
     path = os.path.join(inspection_dir(inspection_id), "inspection.json")
+    if not os.path.exists(path):
+        return None
+    with open(path, encoding="utf-8") as fh:
+        record = json.load(fh)
+    status = record.setdefault("status", {})
+    status.pop("opencv", None)          # stage name used before M2 existed
+    for stage in STAGES:
+        status.setdefault(stage, "pending")
+    record.setdefault("errors", {})
+    return record
+
+
+def set_stage(inspection_id: str, stage: str, state: str, error: str | None = None) -> dict:
+    record = load(inspection_id)
+    record["status"][stage] = state
+    if error:
+        record["errors"][stage] = error
+    else:
+        record["errors"].pop(stage, None)
+    save(record)
+    return record
+
+
+def stage_dir(inspection_id: str, stage: str) -> str:
+    return os.path.join(inspection_dir(inspection_id), stage)
+
+
+def media_paths(record: dict) -> list[str]:
+    return [os.path.join(media_dir(record["inspection_id"]), f) for f in record["media"]["files"]]
+
+
+def load_result(inspection_id: str, stage: str) -> dict | None:
+    path = os.path.join(stage_dir(inspection_id, stage), f"{stage}.json")
     if not os.path.exists(path):
         return None
     with open(path, encoding="utf-8") as fh:

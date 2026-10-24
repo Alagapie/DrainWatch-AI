@@ -1,35 +1,71 @@
 {% extends "base.html" %}
-{% block title %}{{ insp.inspection_id }} · DrainWatch AI{% endblock %}
+{% block title %}{{ insp.site.site_id or insp.inspection_id }} · DrainWatch AI{% endblock %}
 
-{% set stage_labels = {
-  "upload": "Upload",
-  "opencv": "OpenCV analysis",
-  "vlm": "VLM severity",
-  "agent": "Agent report",
-  "review": "Human review",
+{% set stage_info = {
+  "upload":     ("Uploaded", "i-upload", "Footage received"),
+  "preprocess": ("Preprocessing", "i-sparkle", "Frames, quality & alignment"),
+  "analysis":   ("OpenCV analysis", "i-eye", "Drain, water & debris"),
+  "vlm":        ("Severity check", "i-scale", "Vision model rates the risk"),
+  "agent":      ("Recommendation", "i-bot", "Agent drafts the next action"),
+  "review":     ("Human review", "i-user-check", "A supervisor decides"),
 } %}
+{% set state_labels = {"done": "Done", "pending": "Waiting", "running": "In progress", "failed": "Failed"} %}
+{% set issue_labels = {"blurry": "Blurry", "low_light": "Low light", "low_contrast": "Low contrast", "noisy": "Noisy"} %}
+{% set motion_labels = {"static": "Steady", "handheld": "Handheld", "moving": "Moving", "single_frame": "Single frame"} %}
+
+{% macro file_url(path) -%}
+  {{ url_for('inspections.files', inspection_id=insp.inspection_id, filename='preprocess/' ~ path) }}
+{%- endmacro %}
 
 {% block content %}
+<a class="back" href="{{ url_for('inspections.list_view') }}"><svg class="icon"><use href="#i-back"/></svg> All inspections</a>
+
 <div class="page-head">
   <div>
-    <h1>{{ insp.site.site_id or insp.inspection_id }}</h1>
-    <p class="muted">{{ insp.inspection_id }} · created {{ insp.created_at.replace('T', ' ')[:16] }} UTC</p>
+    <h1>{{ insp.site.site_id or 'Unnamed site' }}</h1>
+    <p class="muted">
+      {% if insp.site.address %}<svg class="icon"><use href="#i-pin"/></svg> {{ insp.site.address }} · {% endif %}
+      Submitted {{ insp.created_at | ago }}{% if insp.reporter %} by {{ insp.reporter }}{% endif %}
+    </p>
   </div>
+  <span class="id-chip" title="Inspection ID">{{ insp.inspection_id }}</span>
 </div>
 
 <ol class="stages card">
   {% for stage in stages %}
-  <li class="stage stage-{{ insp.status[stage] }}">
-    <span class="stage-dot"></span>
-    <span class="stage-name">{{ stage_labels[stage] }}</span>
-    <span class="stage-state">{{ insp.status[stage] }}</span>
+  {% set label, icon, hint = stage_info[stage] %}
+  {% set state = insp.status[stage] %}
+  <li class="stage stage-{{ state }}">
+    <span class="stage-dot">
+      {% if state == 'done' %}<svg class="icon"><use href="#i-check"/></svg>
+      {% elif state == 'failed' %}<svg class="icon"><use href="#i-x"/></svg>
+      {% else %}<svg class="icon"><use href="#{{ icon }}"/></svg>{% endif %}
+    </span>
+    <span class="stage-name">{{ label }}</span>
+    <span class="stage-hint">{{ hint }}</span>
+    <span class="stage-state">{{ state_labels.get(state, state) }}</span>
   </li>
   {% endfor %}
 </ol>
 
+{% if running %}
+<section class="card running" id="live" data-status-url="{{ url_for('inspections.status', inspection_id=insp.inspection_id) }}">
+  <div class="running-head">
+    <span class="spinner"></span>
+    <div>
+      <strong>Processing your footage…</strong>
+      <p class="muted small" id="live-message">{{ progress.message if progress else 'Starting' }}</p>
+    </div>
+  </div>
+  <div class="bar"><div class="bar-fill" id="live-bar" style="width: {{ ((progress.fraction if progress else 0) * 100) | round }}%"></div></div>
+</section>
+{% endif %}
+
 <div class="detail-grid">
   <section class="card">
-    <h2>Footage</h2>
+    <div class="card-head">
+      <h2>{% if insp.media.kind == 'video' %}<svg class="icon"><use href="#i-video"/></svg> Video{% else %}<svg class="icon"><use href="#i-image"/></svg> Photos ({{ insp.media.files | length }}){% endif %}</h2>
+    </div>
     {% if insp.media.kind == 'video' %}
       <video controls preload="metadata" class="media-video"
              src="{{ url_for('inspections.media', inspection_id=insp.inspection_id, filename=insp.media.files[0]) }}"></video>
@@ -37,7 +73,7 @@
     {% else %}
       <div class="thumbs">
         {% for name in insp.media.files %}
-        <a href="{{ url_for('inspections.media', inspection_id=insp.inspection_id, filename=name) }}" target="_blank">
+        <a href="{{ url_for('inspections.media', inspection_id=insp.inspection_id, filename=name) }}" target="_blank" title="{{ name }}">
           <img src="{{ url_for('inspections.media', inspection_id=insp.inspection_id, filename=name) }}" alt="{{ name }}" loading="lazy">
         </a>
         {% endfor %}
@@ -46,24 +82,176 @@
   </section>
 
   <section class="card">
-    <h2>Site</h2>
+    <div class="card-head"><h2><svg class="icon"><use href="#i-pin"/></svg> Location</h2></div>
+    {% if insp.site.lat is not none %}
+      {% set d = 0.003 %}
+      <iframe class="map" loading="lazy" title="Map"
+              src="https://www.openstreetmap.org/export/embed.html?bbox={{ insp.site.lon - d }},{{ insp.site.lat - d }},{{ insp.site.lon + d }},{{ insp.site.lat + d }}&layer=mapnik&marker={{ insp.site.lat }},{{ insp.site.lon }}"></iframe>
+      <a class="small" href="https://www.openstreetmap.org/?mlat={{ insp.site.lat }}&mlon={{ insp.site.lon }}#map=18/{{ insp.site.lat }}/{{ insp.site.lon }}" target="_blank" rel="noopener">{{ insp.site.lat }}, {{ insp.site.lon }} · open map</a>
+    {% else %}
+      <div class="map map-empty"><svg class="icon"><use href="#i-pin"/></svg> No coordinates provided</div>
+    {% endif %}
+
     <dl class="facts">
-      <dt>Site ID</dt><dd>{{ insp.site.site_id or '—' }}</dd>
+      <dt>Drain / site ID</dt><dd>{{ insp.site.site_id or '—' }}</dd>
       <dt>Address</dt><dd>{{ insp.site.address or '—' }}</dd>
-      <dt>Coordinates</dt>
-      <dd>
-        {% if insp.site.lat is not none %}
-          <a href="https://www.openstreetmap.org/?mlat={{ insp.site.lat }}&mlon={{ insp.site.lon }}#map=18/{{ insp.site.lat }}/{{ insp.site.lon }}" target="_blank" rel="noopener">{{ insp.site.lat }}, {{ insp.site.lon }}</a>
-        {% else %}—{% endif %}
-      </dd>
       <dt>Reporter</dt><dd>{{ insp.reporter or '—' }}</dd>
-      <dt>Notes</dt><dd>{{ insp.notes or '—' }}</dd>
+      <dt>Submitted</dt><dd>{{ insp.created_at | datetime }}</dd>
     </dl>
   </section>
 </div>
 
-<section class="card">
-  <h2>Analysis</h2>
-  <p class="muted">Footage uploaded. OpenCV analysis, VLM severity and the agent report will appear here once those modules are connected.</p>
+{% if insp.notes %}
+<section class="card note">
+  <svg class="icon"><use href="#i-note"/></svg>
+  <div><strong>Reporter's note</strong><p>{{ insp.notes }}</p></div>
 </section>
+{% endif %}
+
+{# ------------------------------------------------------------ M2 preprocessing #}
+{% if insp.status.preprocess == 'failed' and not running %}
+<section class="card failed">
+  <span class="coming-icon"><svg class="icon"><use href="#i-x"/></svg></span>
+  <div class="grow">
+    <h2>Preprocessing failed</h2>
+    <p class="muted">{{ insp.errors.preprocess or 'Unknown error.' }}</p>
+  </div>
+  <form method="post" action="{{ url_for('inspections.process', inspection_id=insp.inspection_id) }}">
+    <button class="btn">Try again</button>
+  </form>
+</section>
+
+{% elif pre and insp.status.preprocess == 'done' %}
+{% set s = pre.summary %}
+<section class="card">
+  <div class="card-head">
+    <div>
+      <h2><svg class="icon"><use href="#i-sparkle"/></svg> Preprocessing</h2>
+      <p class="muted small">OpenCV {{ pre.opencv_version }} · {{ pre.timings_s.total }} s
+        {% if pre.source.kind == 'video' %} · {{ pre.source.width }}×{{ pre.source.height }} at {{ pre.source.fps | round(1) }} fps{% if pre.source.duration_s %}, {{ pre.source.duration_s }} s{% endif %}{% endif %}</p>
+    </div>
+    <form method="post" action="{{ url_for('inspections.process', inspection_id=insp.inspection_id) }}">
+      <button class="btn btn-soft btn-sm" title="Run preprocessing again">Re-run</button>
+    </form>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><span class="stat-value">{{ s.kept }}<small>/{{ s.sampled }}</small></span><span class="stat-label">Frames kept</span></div>
+    <div class="stat"><span class="stat-value">{{ s.keyframes }}</span><span class="stat-label">Keyframes</span></div>
+    <div class="stat {{ 'stat-warn' if s.rejected_blurry }}"><span class="stat-value">{{ s.rejected_blurry }}</span><span class="stat-label">Too blurry</span></div>
+    <div class="stat"><span class="stat-value">{{ s.enhanced }}</span><span class="stat-label">Enhanced</span></div>
+    <div class="stat {{ 'stat-warn' if s.aligned < s.kept / 2 }}"><span class="stat-value">{{ s.aligned }}<small>/{{ s.kept }}</small></span><span class="stat-label">Aligned</span></div>
+    <div class="stat"><span class="stat-value stat-text">{{ motion_labels.get(s.camera_motion, s.camera_motion) }}</span><span class="stat-label">Camera</span></div>
+  </div>
+
+  {% if s.issue_counts %}
+  <p class="issue-line">
+    <span class="muted small">Quality issues found:</span>
+    {% for k, v in s.issue_counts.items() %}<span class="pill pill-warn">{{ issue_labels.get(k, k) }} · {{ v }}</span>{% endfor %}
+    {% if s.enhancement_counts %}<span class="muted small">Fixed with:</span>
+      {% for k, v in s.enhancement_counts.items() %}<span class="pill pill-info">{{ k | upper if k == 'clahe' else k | capitalize }} · {{ v }}</span>{% endfor %}
+    {% endif %}
+  </p>
+  {% else %}
+  <p class="issue-line"><span class="pill pill-ok">Good quality footage, no enhancement needed</span></p>
+  {% endif %}
+
+  <div class="pre-grid">
+    {% if pre.comparison %}
+    <div>
+      <h3>Before / after enhancement</h3>
+      <div class="compare" style="--pos: 50%">
+        <img src="{{ file_url(pre.comparison.enhanced) }}" alt="Enhanced frame">
+        <img class="compare-before" src="{{ file_url(pre.comparison.raw) }}" alt="Original frame">
+        <span class="compare-tag left">Original</span>
+        <span class="compare-tag right">{{ pre.comparison.enhancements | join(' + ') | replace('clahe', 'CLAHE') }}</span>
+        <span class="compare-handle"></span>
+        <input type="range" min="0" max="100" value="50" aria-label="Compare original and enhanced">
+      </div>
+    </div>
+    {% endif %}
+
+    {% set n = pre.frames | length %}
+    {% if n > 1 %}
+    <div>
+      <h3>Frame quality over time</h3>
+      {% set w, h = 600, 200 %}
+      {% set max_sharp = [pre.frames | map(attribute='quality.sharpness') | max, 1] | max %}
+      <svg class="chart" viewBox="0 0 {{ w }} {{ h }}" preserveAspectRatio="none" role="img" aria-label="Sharpness and brightness per frame">
+        <line x1="0" y1="{{ h - 1 }}" x2="{{ w }}" y2="{{ h - 1 }}" class="chart-axis"/>
+        <polyline class="chart-sharp" points="{% for f in pre.frames %}{{ (loop.index0 * w / (n - 1)) | round(1) }},{{ (h - 8 - (f.quality.sharpness / max_sharp) * (h - 16)) | round(1) }} {% endfor %}"/>
+        <polyline class="chart-bright" points="{% for f in pre.frames %}{{ (loop.index0 * w / (n - 1)) | round(1) }},{{ (h - 8 - (f.quality.brightness / 255) * (h - 16)) | round(1) }} {% endfor %}"/>
+        {% for f in pre.frames %}{% if not f.alignment.ok %}<line x1="{{ (loop.index0 * w / (n - 1)) | round(1) }}" y1="0" x2="{{ (loop.index0 * w / (n - 1)) | round(1) }}" y2="{{ h }}" class="chart-gap"/>{% endif %}{% endfor %}
+      </svg>
+      <div class="legend">
+        <span><i class="sw sw-sharp"></i>Sharpness</span>
+        <span><i class="sw sw-bright"></i>Brightness</span>
+        <span><i class="sw sw-gap"></i>Not aligned</span>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="frames-head">
+    <h3>Frames <span class="muted">({{ n }})</span></h3>
+    <div class="toggles">
+      <div class="seg" role="group" aria-label="Which frames">
+        <button type="button" data-filter="key" class="on">Keyframes</button>
+        <button type="button" data-filter="all">All</button>
+      </div>
+      <div class="seg" role="group" aria-label="Image version">
+        <button type="button" data-version="enhanced" class="on">Enhanced</button>
+        <button type="button" data-version="raw">Original</button>
+      </div>
+    </div>
+  </div>
+  <div class="frame-grid" id="frame-grid">
+    {% for f in pre.frames %}
+    <figure class="frame {{ 'is-key' if f.keyframe }} {{ 'is-ref' if f.index == s.reference_index }}" {% if not f.keyframe %}hidden{% endif %}>
+      <a href="{{ file_url(f.enhanced) }}" target="_blank">
+        <img loading="lazy" src="{{ file_url(f.enhanced) }}" data-enhanced="{{ file_url(f.enhanced) }}" data-raw="{{ file_url(f.raw) }}" alt="Frame {{ f.index }}">
+      </a>
+      <span class="frame-time">{{ 't=%.1fs' | format(f.t) if pre.source.kind == 'video' else (f.source_file or 'photo') }}</span>
+      {% if f.index == s.reference_index %}<span class="frame-ref">Reference</span>{% endif %}
+      <figcaption>
+        <div class="frame-tags">
+          {% for i in f.quality.issues %}<span class="tag tag-warn">{{ issue_labels.get(i, i) }}</span>{% endfor %}
+          {% for e in f.enhancements %}<span class="tag tag-info">{{ 'CLAHE' if e == 'clahe' else e | capitalize }}</span>{% endfor %}
+          {% if not f.quality.issues %}<span class="tag tag-ok">Good</span>{% endif %}
+        </div>
+        <div class="frame-meta muted">
+          <span title="Sharpness (Laplacian variance)">Sharp {{ f.quality.sharpness | round | int }}</span>
+          <span title="Mean brightness (0-255)">Bright {{ f.quality.brightness | round | int }}</span>
+          <span title="Aligned to the reference frame">{% if f.alignment.ok %}<svg class="icon ok"><use href="#i-check"/></svg>{% else %}<svg class="icon bad"><use href="#i-x"/></svg>{% endif %}</span>
+        </div>
+      </figcaption>
+    </figure>
+    {% endfor %}
+  </div>
+</section>
+
+{% elif not running %}
+<section class="card coming">
+  <span class="coming-icon"><svg class="icon"><use href="#i-sparkle"/></svg></span>
+  <div class="grow">
+    <h2>Not processed yet</h2>
+    <p class="muted">Run preprocessing to extract frames, check quality and align them.</p>
+  </div>
+  <form method="post" action="{{ url_for('inspections.process', inspection_id=insp.inspection_id) }}">
+    <button class="btn">Run preprocessing</button>
+  </form>
+</section>
+{% endif %}
+
+<section class="card coming">
+  <span class="coming-icon"><svg class="icon"><use href="#i-eye"/></svg></span>
+  <div>
+    <h2>Analysis will appear here</h2>
+    <p class="muted">Next, OpenCV will detect the drain, water and debris, a vision model will rate severity, and the agent will draft a recommendation for review.</p>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/detail.js') }}"></script>
 {% endblock %}

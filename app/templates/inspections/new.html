@@ -2,61 +2,138 @@
 {% block title %}New inspection · DrainWatch AI{% endblock %}
 
 {% block content %}
-<h1>New inspection</h1>
-<p class="muted">Upload street footage of a drain. DrainWatch analyses it with OpenCV and drafts a maintenance recommendation for human review.</p>
+<section class="hero">
+  <span class="eyebrow"><svg class="icon"><use href="#i-sparkle"/></svg> New inspection</span>
+  <h1>Spotted a blocked drain or standing water?</h1>
+  <p>Upload a short clip or a few photos. We'll check the drain with computer vision and prepare a maintenance recommendation for the team to review.</p>
+</section>
 
-<div id="form-error" class="alert alert-error" hidden></div>
+<div class="new-layout">
+  <form id="upload-form" class="card form-card" method="post" enctype="multipart/form-data"
+        action="{{ url_for('inspections.new') }}" novalidate>
 
-<form id="upload-form" class="card" method="post" enctype="multipart/form-data"
-      action="{{ url_for('inspections.new') }}">
-  <section>
-    <h2>Footage</h2>
-    <label id="dropzone" class="dropzone" for="media">
-      <input id="media" name="media" type="file" multiple
-             accept="video/*,.jpg,.jpeg,.png,.bmp,.webp">
-      <strong>Drag &amp; drop a video or photos here</strong>
-      <span class="muted">or click to browse · one video, or up to {{ config.MAX_IMAGES }} photos · max {{ config.MAX_CONTENT_LENGTH // (1024 * 1024) }} MB</span>
-    </label>
-    <ul id="file-list" class="file-list"></ul>
-    <div id="preview" class="preview"></div>
-  </section>
+    <div id="form-error" class="alert alert-error" role="alert" hidden></div>
 
-  <section>
-    <h2>Location</h2>
-    <div class="grid">
-      <label>Site / drain ID
-        <input name="site_id" placeholder="e.g. D-14" value="{{ form.site_id if form }}">
+    <section class="form-step">
+      <header class="step-head">
+        <span class="step-num">1</span>
+        <div>
+          <h2>Add footage</h2>
+          <p class="muted">One video, or up to {{ config.MAX_IMAGES }} photos of the same spot.</p>
+        </div>
+      </header>
+
+      <label id="dropzone" class="dropzone" for="media">
+        <input id="media" name="media" type="file" multiple accept="video/*,.jpg,.jpeg,.png,.bmp,.webp">
+        <span class="dropzone-icon"><svg><use href="#i-upload"/></svg></span>
+        <strong>Drag &amp; drop your video or photos</strong>
+        <span class="muted">or <span class="link">browse your files</span></span>
+        <span class="formats">MP4 · MOV · AVI · WEBM · JPG · PNG &nbsp;·&nbsp; up to {{ config.MAX_CONTENT_LENGTH // (1024 * 1024) }} MB</span>
       </label>
-      <label>Address or landmark
-        <input name="address" placeholder="e.g. Ahmadu Bello Way, near the market" value="{{ form.address if form }}">
+
+      <div id="selection" class="selection" hidden>
+        <div class="selection-head">
+          <span id="selection-summary"></span>
+          <button type="button" id="clear-files" class="btn-link">Clear all</button>
+        </div>
+        <div id="file-grid" class="file-grid"></div>
+      </div>
+    </section>
+
+    <section class="form-step">
+      <header class="step-head">
+        <span class="step-num">2</span>
+        <div>
+          <h2>Where is it?</h2>
+          <p class="muted">Helps the team find the drain and spot repeat problems.</p>
+        </div>
+      </header>
+
+      <div class="grid">
+        <label class="field">
+          <span>Drain / site ID <em class="optional">optional</em></span>
+          <input name="site_id" placeholder="e.g. D-14" value="{{ form.site_id if form }}">
+        </label>
+        <label class="field">
+          <span>Address or landmark <em class="optional">optional</em></span>
+          <input name="address" placeholder="e.g. Ahmadu Bello Way, by the market" value="{{ form.address if form }}">
+        </label>
+      </div>
+
+      <div class="location-box">
+        <button type="button" id="geolocate" class="btn btn-soft">
+          <svg class="icon"><use href="#i-crosshair"/></svg> Use my current location
+        </button>
+        <span id="geo-status" class="geo-status muted">or type the coordinates</span>
+      </div>
+      <div class="grid">
+        <label class="field">
+          <span>Latitude</span>
+          <input name="lat" id="lat" inputmode="decimal" placeholder="9.0765" value="{{ form.lat if form }}">
+        </label>
+        <label class="field">
+          <span>Longitude</span>
+          <input name="lon" id="lon" inputmode="decimal" placeholder="7.3986" value="{{ form.lon if form }}">
+        </label>
+      </div>
+    </section>
+
+    <section class="form-step">
+      <header class="step-head">
+        <span class="step-num">3</span>
+        <div>
+          <h2>Anything else?</h2>
+          <p class="muted">A quick note goes a long way.</p>
+        </div>
+      </header>
+
+      <label class="field">
+        <span>Your name or team <em class="optional">optional</em></span>
+        <input name="reporter" placeholder="e.g. Ward 4 inspection crew" value="{{ form.reporter if form }}">
       </label>
-      <label>Latitude
-        <input name="lat" id="lat" inputmode="decimal" placeholder="9.0765" value="{{ form.lat if form }}">
+      <label class="field">
+        <span>What did you notice? <em class="optional">optional</em></span>
+        <textarea name="notes" rows="3" placeholder="e.g. Water has been standing here since yesterday's rain, and there's rubbish on the grate.">{{ form.notes if form }}</textarea>
       </label>
-      <label>Longitude
-        <input name="lon" id="lon" inputmode="decimal" placeholder="7.3986" value="{{ form.lon if form }}">
-      </label>
+    </section>
+
+    <div class="submit-row">
+      <button type="submit" id="submit" class="btn btn-lg btn-block">
+        <span class="btn-fill"></span>
+        <span class="btn-text">Submit inspection</span>
+      </button>
+      <p class="muted small center">Nothing is sent to a field team until a person reviews it.</p>
     </div>
-    <button type="button" id="geolocate" class="btn btn-secondary">Use my current location</button>
-  </section>
+  </form>
 
-  <section>
-    <h2>Details</h2>
-    <div class="grid">
-      <label>Reporter
-        <input name="reporter" placeholder="Name or team" value="{{ form.reporter if form }}">
-      </label>
+  <aside class="side">
+    <div class="card side-card">
+      <h3>How it works</h3>
+      <ol class="how">
+        <li><span class="how-icon"><svg class="icon"><use href="#i-upload"/></svg></span>
+          <div><strong>You upload</strong><p>A clip or photos from your phone, dashcam or drone.</p></div></li>
+        <li><span class="how-icon"><svg class="icon"><use href="#i-eye"/></svg></span>
+          <div><strong>OpenCV looks</strong><p>Finds the drain, water and debris, and checks what persists over time.</p></div></li>
+        <li><span class="how-icon"><svg class="icon"><use href="#i-scale"/></svg></span>
+          <div><strong>AI rates severity</strong><p>A vision model double-checks the evidence and scores the risk.</p></div></li>
+        <li><span class="how-icon"><svg class="icon"><use href="#i-bot"/></svg></span>
+          <div><strong>Agent recommends</strong><p>Compares history and rainfall, then drafts the next action.</p></div></li>
+        <li><span class="how-icon"><svg class="icon"><use href="#i-user-check"/></svg></span>
+          <div><strong>A person decides</strong><p>A supervisor approves, edits or rejects it.</p></div></li>
+      </ol>
     </div>
-    <label>Notes
-      <textarea name="notes" rows="3" placeholder="What did you observe? e.g. water has stood here since yesterday's rain">{{ form.notes if form }}</textarea>
-    </label>
-  </section>
 
-  <div class="actions">
-    <div id="progress" class="progress" hidden><div class="progress-bar"></div><span class="progress-label"></span></div>
-    <button type="submit" id="submit" class="btn">Upload and create inspection</button>
-  </div>
-</form>
+    <div class="card side-card tips">
+      <h3>Tips for good footage</h3>
+      <ul>
+        <li><svg class="icon"><use href="#i-target"/></svg> Keep the drain grate in view</li>
+        <li><svg class="icon"><use href="#i-hand"/></svg> Hold steady for 10–20 seconds</li>
+        <li><svg class="icon"><use href="#i-sun"/></svg> Daylight works best</li>
+        <li><svg class="icon"><use href="#i-shield"/></svg> Faces and plates are blurred in reports</li>
+      </ul>
+    </div>
+  </aside>
+</div>
 {% endblock %}
 
 {% block scripts %}

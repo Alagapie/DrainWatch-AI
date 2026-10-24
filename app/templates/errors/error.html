@@ -3,8 +3,9 @@
 
 {% block content %}
 <div class="card empty">
-  <h1>{{ code }}</h1>
-  <p>{{ message }}</p>
-  <a class="btn" href="{{ url_for('inspections.new') }}">Back to upload</a>
+  <span class="empty-icon"><svg><use href="#i-logo"/></svg></span>
+  <h2>{{ code }} · {{ message }}</h2>
+  <p class="muted">Let's get you back on track.</p>
+  <a class="btn" href="{{ url_for('inspections.new') }}"><svg class="icon"><use href="#i-back"/></svg> Back to upload</a>
 </div>
 {% endblock %}

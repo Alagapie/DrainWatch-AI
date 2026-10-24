@@ -4,17 +4,32 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}DrainWatch AI{% endblock %}</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 3c-4.5 6-8 10.4-8 14.5a8 8 0 0 0 16 0C24 13.4 20.5 9 16 3z' fill='%230b7fb0'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
 </head>
 <body>
+  {% include "partials/icons.html" %}
+
   <header class="topbar">
-    <a class="brand" href="{{ url_for('index') }}">DrainWatch <span>AI</span></a>
-    <nav>
-      <a href="{{ url_for('inspections.new') }}"
-         class="{{ 'active' if request.endpoint == 'inspections.new' }}">New inspection</a>
-      <a href="{{ url_for('inspections.list_view') }}"
-         class="{{ 'active' if request.endpoint in ('inspections.list_view', 'inspections.detail') }}">Inspections</a>
-    </nav>
+    <div class="topbar-inner">
+      <a class="brand" href="{{ url_for('index') }}">
+        <span class="brand-mark"><svg><use href="#i-logo"/></svg></span>
+        <span>DrainWatch <em>AI</em></span>
+      </a>
+      <nav class="nav">
+        <a href="{{ url_for('inspections.new') }}"
+           class="{{ 'active' if request.endpoint == 'inspections.new' }}">
+          <svg class="icon"><use href="#i-plus"/></svg><span>New inspection</span>
+        </a>
+        <a href="{{ url_for('inspections.list_view') }}"
+           class="{{ 'active' if request.endpoint in ('inspections.list_view', 'inspections.detail') }}">
+          <svg class="icon"><use href="#i-list"/></svg><span>Inspections</span>
+        </a>
+      </nav>
+    </div>
   </header>
 
   <main class="container">
@@ -25,6 +40,10 @@
     {% endwith %}
     {% block content %}{% endblock %}
   </main>
+
+  <footer class="footer">
+    DrainWatch AI · OpenCV 5 + Amazon Bedrock · decision support, every action is reviewed by a person
+  </footer>
 
   {% block scripts %}{% endblock %}
 </body>

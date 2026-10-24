@@ -1,37 +1,89 @@
 {% extends "base.html" %}
 {% block title %}Inspections · DrainWatch AI{% endblock %}
 
+{% macro stage_summary(status) -%}
+  {%- set done = status.values() | select("equalto", "done") | list | length -%}
+  {%- if status.review == "done" -%}<span class="pill pill-ok">Reviewed</span>
+  {%- elif "failed" in status.values() -%}<span class="pill pill-error">Needs attention</span>
+  {%- elif "running" in status.values() -%}<span class="pill pill-warn">Analysing</span>
+  {%- elif done == 1 -%}<span class="pill pill-info">Uploaded</span>
+  {%- else -%}<span class="pill pill-info">{{ done }} of {{ status | length }} steps</span>
+  {%- endif -%}
+{%- endmacro %}
+
 {% block content %}
 <div class="page-head">
-  <h1>Inspections</h1>
-  <a class="btn" href="{{ url_for('inspections.new') }}">New inspection</a>
+  <div>
+    <h1>Inspections</h1>
+    <p class="muted">{{ inspections | length }} inspection{{ '' if inspections | length == 1 else 's' }} so far</p>
+  </div>
+  <a class="btn" href="{{ url_for('inspections.new') }}"><svg class="icon"><use href="#i-plus"/></svg> New inspection</a>
 </div>
 
 {% if inspections %}
-<div class="card table-wrap">
-  <table>
-    <thead>
-      <tr><th>Inspection</th><th>Site</th><th>Media</th><th>Created (UTC)</th><th>Progress</th></tr>
-    </thead>
-    <tbody>
-      {% for insp in inspections %}
-      <tr>
-        <td><a href="{{ url_for('inspections.detail', inspection_id=insp.inspection_id) }}">{{ insp.inspection_id }}</a></td>
-        <td>{{ insp.site.site_id or '—' }}{% if insp.site.address %}<div class="muted small">{{ insp.site.address }}</div>{% endif %}</td>
-        <td>{{ insp.media.files | length }} {{ 'video' if insp.media.kind == 'video' else 'photo(s)' }}</td>
-        <td>{{ insp.created_at.replace('T', ' ')[:16] }}</td>
-        <td>
-          {% for stage, state in insp.status.items() %}<span class="dot dot-{{ state }}" title="{{ stage }}: {{ state }}"></span>{% endfor %}
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+<label class="search">
+  <svg class="icon"><use href="#i-search"/></svg>
+  <input id="search" type="search" placeholder="Search by drain ID, address or reporter">
+</label>
+
+<div class="insp-grid" id="insp-grid">
+  {% for insp in inspections %}
+  <a class="insp-card" href="{{ url_for('inspections.detail', inspection_id=insp.inspection_id) }}"
+     data-search="{{ [insp.site.site_id, insp.site.address, insp.reporter, insp.inspection_id] | select | join(' ') | lower }}">
+    <div class="insp-thumb">
+      {% if insp.media.kind == 'images' %}
+        <img src="{{ url_for('inspections.media', inspection_id=insp.inspection_id, filename=insp.media.files[0]) }}" alt="" loading="lazy">
+        {% if insp.media.files | length > 1 %}<span class="thumb-badge"><svg class="icon"><use href="#i-image"/></svg> {{ insp.media.files | length }}</span>{% endif %}
+      {% else %}
+        <video src="{{ url_for('inspections.media', inspection_id=insp.inspection_id, filename=insp.media.files[0]) }}#t=0.5" preload="metadata" muted></video>
+        <span class="thumb-badge"><svg class="icon"><use href="#i-video"/></svg> Video</span>
+      {% endif %}
+    </div>
+    <div class="insp-body">
+      <div class="insp-top">
+        <strong>{{ insp.site.site_id or 'Unnamed site' }}</strong>
+        {{ stage_summary(insp.status) }}
+      </div>
+      <p class="muted insp-addr"><svg class="icon"><use href="#i-pin"/></svg> {{ insp.site.address or 'No address given' }}</p>
+      <div class="insp-meta">
+        <span title="{{ insp.created_at | datetime }}"><svg class="icon"><use href="#i-clock"/></svg> {{ insp.created_at | ago }}</span>
+        <span class="progress-dots">
+          {% for stage, state in insp.status.items() %}<i class="dot dot-{{ state }}" title="{{ stage }}: {{ state }}"></i>{% endfor %}
+        </span>
+      </div>
+    </div>
+  </a>
+  {% endfor %}
 </div>
+<p id="no-results" class="muted center" hidden>No inspections match your search.</p>
+
 {% else %}
 <div class="card empty">
-  <p>No inspections yet.</p>
-  <a class="btn" href="{{ url_for('inspections.new') }}">Upload the first one</a>
+  <span class="empty-icon"><svg><use href="#i-logo"/></svg></span>
+  <h2>No inspections yet</h2>
+  <p class="muted">When you upload footage of a drain, it will show up here.</p>
+  <a class="btn" href="{{ url_for('inspections.new') }}"><svg class="icon"><use href="#i-upload"/></svg> Upload your first inspection</a>
 </div>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (function () {
+    const input = document.getElementById("search");
+    if (!input) return;
+    const cards = [...document.querySelectorAll(".insp-card")];
+    const none = document.getElementById("no-results");
+    input.addEventListener("input", () => {
+      const q = input.value.trim().toLowerCase();
+      let shown = 0;
+      cards.forEach((c) => {
+        const match = !q || c.dataset.search.includes(q);
+        c.hidden = !match;
+        shown += match;
+      });
+      none.hidden = shown > 0;
+    });
+  })();
+</script>
 {% endblock %}
