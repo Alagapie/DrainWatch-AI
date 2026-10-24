@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Inspections · DrainWatch AI{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>Inspections</h1>
+  <a class="btn" href="{{ url_for('inspections.new') }}">New inspection</a>
+</div>
+
+{% if inspections %}
+<div class="card table-wrap">
+  <table>
+    <thead>
+      <tr><th>Inspection</th><th>Site</th><th>Media</th><th>Created (UTC)</th><th>Progress</th></tr>
+    </thead>
+    <tbody>
+      {% for insp in inspections %}
+      <tr>
+        <td><a href="{{ url_for('inspections.detail', inspection_id=insp.inspection_id) }}">{{ insp.inspection_id }}</a></td>
+        <td>{{ insp.site.site_id or '—' }}{% if insp.site.address %}<div class="muted small">{{ insp.site.address }}</div>{% endif %}</td>
+        <td>{{ insp.media.files | length }} {{ 'video' if insp.media.kind == 'video' else 'photo(s)' }}</td>
+        <td>{{ insp.created_at.replace('T', ' ')[:16] }}</td>
+        <td>
+          {% for stage, state in insp.status.items() %}<span class="dot dot-{{ state }}" title="{{ stage }}: {{ state }}"></span>{% endfor %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="card empty">
+  <p>No inspections yet.</p>
+  <a class="btn" href="{{ url_for('inspections.new') }}">Upload the first one</a>
+</div>
+{% endif %}
+{% endblock %}

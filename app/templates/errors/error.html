@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}{{ code }} · DrainWatch AI{% endblock %}
+
+{% block content %}
+<div class="card empty">
+  <h1>{{ code }}</h1>
+  <p>{{ message }}</p>
+  <a class="btn" href="{{ url_for('inspections.new') }}">Back to upload</a>
+</div>
+{% endblock %}

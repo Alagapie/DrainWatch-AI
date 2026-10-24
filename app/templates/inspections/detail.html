@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}{{ insp.inspection_id }} · DrainWatch AI{% endblock %}
+
+{% set stage_labels = {
+  "upload": "Upload",
+  "opencv": "OpenCV analysis",
+  "vlm": "VLM severity",
+  "agent": "Agent report",
+  "review": "Human review",
+} %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>{{ insp.site.site_id or insp.inspection_id }}</h1>
+    <p class="muted">{{ insp.inspection_id }} · created {{ insp.created_at.replace('T', ' ')[:16] }} UTC</p>
+  </div>
+</div>
+
+<ol class="stages card">
+  {% for stage in stages %}
+  <li class="stage stage-{{ insp.status[stage] }}">
+    <span class="stage-dot"></span>
+    <span class="stage-name">{{ stage_labels[stage] }}</span>
+    <span class="stage-state">{{ insp.status[stage] }}</span>
+  </li>
+  {% endfor %}
+</ol>
+
+<div class="detail-grid">
+  <section class="card">
+    <h2>Footage</h2>
+    {% if insp.media.kind == 'video' %}
+      <video controls preload="metadata" class="media-video"
+             src="{{ url_for('inspections.media', inspection_id=insp.inspection_id, filename=insp.media.files[0]) }}"></video>
+      <p class="muted small">{{ insp.media.files[0] }}</p>
+    {% else %}
+      <div class="thumbs">
+        {% for name in insp.media.files %}
+        <a href="{{ url_for('inspections.media', inspection_id=insp.inspection_id, filename=name) }}" target="_blank">
+          <img src="{{ url_for('inspections.media', inspection_id=insp.inspection_id, filename=name) }}" alt="{{ name }}" loading="lazy">
+        </a>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <h2>Site</h2>
+    <dl class="facts">
+      <dt>Site ID</dt><dd>{{ insp.site.site_id or '—' }}</dd>
+      <dt>Address</dt><dd>{{ insp.site.address or '—' }}</dd>
+      <dt>Coordinates</dt>
+      <dd>
+        {% if insp.site.lat is not none %}
+          <a href="https://www.openstreetmap.org/?mlat={{ insp.site.lat }}&mlon={{ insp.site.lon }}#map=18/{{ insp.site.lat }}/{{ insp.site.lon }}" target="_blank" rel="noopener">{{ insp.site.lat }}, {{ insp.site.lon }}</a>
+        {% else %}—{% endif %}
+      </dd>
+      <dt>Reporter</dt><dd>{{ insp.reporter or '—' }}</dd>
+      <dt>Notes</dt><dd>{{ insp.notes or '—' }}</dd>
+    </dl>
+  </section>
+</div>
+
+<section class="card">
+  <h2>Analysis</h2>
+  <p class="muted">Footage uploaded. OpenCV analysis, VLM severity and the agent report will appear here once those modules are connected.</p>
+</section>
+{% endblock %}

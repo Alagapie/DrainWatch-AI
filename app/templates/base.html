@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}DrainWatch AI{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="{{ url_for('index') }}">DrainWatch <span>AI</span></a>
+    <nav>
+      <a href="{{ url_for('inspections.new') }}"
+         class="{{ 'active' if request.endpoint == 'inspections.new' }}">New inspection</a>
+      <a href="{{ url_for('inspections.list_view') }}"
+         class="{{ 'active' if request.endpoint in ('inspections.list_view', 'inspections.detail') }}">Inspections</a>
+    </nav>
+  </header>
+
+  <main class="container">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+        <div class="alert alert-{{ category }}">{{ message }}</div>
+      {% endfor %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>

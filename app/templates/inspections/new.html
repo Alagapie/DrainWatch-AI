@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}New inspection · DrainWatch AI{% endblock %}
+
+{% block content %}
+<h1>New inspection</h1>
+<p class="muted">Upload street footage of a drain. DrainWatch analyses it with OpenCV and drafts a maintenance recommendation for human review.</p>
+
+<div id="form-error" class="alert alert-error" hidden></div>
+
+<form id="upload-form" class="card" method="post" enctype="multipart/form-data"
+      action="{{ url_for('inspections.new') }}">
+  <section>
+    <h2>Footage</h2>
+    <label id="dropzone" class="dropzone" for="media">
+      <input id="media" name="media" type="file" multiple
+             accept="video/*,.jpg,.jpeg,.png,.bmp,.webp">
+      <strong>Drag &amp; drop a video or photos here</strong>
+      <span class="muted">or click to browse · one video, or up to {{ config.MAX_IMAGES }} photos · max {{ config.MAX_CONTENT_LENGTH // (1024 * 1024) }} MB</span>
+    </label>
+    <ul id="file-list" class="file-list"></ul>
+    <div id="preview" class="preview"></div>
+  </section>
+
+  <section>
+    <h2>Location</h2>
+    <div class="grid">
+      <label>Site / drain ID
+        <input name="site_id" placeholder="e.g. D-14" value="{{ form.site_id if form }}">
+      </label>
+      <label>Address or landmark
+        <input name="address" placeholder="e.g. Ahmadu Bello Way, near the market" value="{{ form.address if form }}">
+      </label>
+      <label>Latitude
+        <input name="lat" id="lat" inputmode="decimal" placeholder="9.0765" value="{{ form.lat if form }}">
+      </label>
+      <label>Longitude
+        <input name="lon" id="lon" inputmode="decimal" placeholder="7.3986" value="{{ form.lon if form }}">
+      </label>
+    </div>
+    <button type="button" id="geolocate" class="btn btn-secondary">Use my current location</button>
+  </section>
+
+  <section>
+    <h2>Details</h2>
+    <div class="grid">
+      <label>Reporter
+        <input name="reporter" placeholder="Name or team" value="{{ form.reporter if form }}">
+      </label>
+    </div>
+    <label>Notes
+      <textarea name="notes" rows="3" placeholder="What did you observe? e.g. water has stood here since yesterday's rain">{{ form.notes if form }}</textarea>
+    </label>
+  </section>
+
+  <div class="actions">
+    <div id="progress" class="progress" hidden><div class="progress-bar"></div><span class="progress-label"></span></div>
+    <button type="submit" id="submit" class="btn">Upload and create inspection</button>
+  </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/upload.js') }}"></script>
+{% endblock %}
