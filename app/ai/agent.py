@@ -12,7 +12,7 @@ import time
 
 from . import bedrock, tools
 
-MAX_TURNS = 12
+MAX_TURNS = 11
 
 SYSTEM = """You are DrainWatch, an agent that prioritises drainage work for a city maintenance team.
 You receive OpenCV 5 measurements of uploaded street footage and a vision model's severity check.
