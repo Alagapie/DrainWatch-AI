@@ -4,7 +4,7 @@ from flask import (abort, current_app, flash, jsonify, redirect, render_template
 from . import bp, pipeline, storage
 
 # Sub-folders of an inspection that may be served to the browser.
-SERVABLE = ("media/", "preprocess/")
+SERVABLE = ("media/", "preprocess/", "analysis/", "vlm/", "agent/")
 
 
 def _wants_json() -> bool:
@@ -53,6 +53,9 @@ def detail(inspection_id):
         running=pipeline.is_running(inspection_id),
         progress=pipeline.progress(inspection_id),
         pre=storage.load_result(inspection_id, "preprocess"),
+        ana=storage.load_result(inspection_id, "analysis"),
+        vlm=storage.load_result(inspection_id, "vlm"),
+        agent=storage.load_result(inspection_id, "agent"),
     )
 
 

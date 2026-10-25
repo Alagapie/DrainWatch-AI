@@ -64,11 +64,13 @@ def warp(img: np.ndarray, matrix, size: tuple[int, int], nearest: bool = False) 
                           borderMode=cv2.BORDER_CONSTANT, borderValue=0)
 
 
-def camera_motion(alignments: list[dict]) -> str:
+def camera_motion(alignments: list[dict], photos: bool = False) -> str:
     """Describe how the camera moved, from the registration results."""
     ok = [a for a in alignments if a["ok"]]
     if len(alignments) < 2:
         return "single_frame"
+    if photos and len(ok) < len(alignments):
+        return "different_views"    # some photos show a different scene
     if len(ok) / len(alignments) < 0.5:
         return "moving"             # view changes too much to register (e.g. driving)
     max_shift = max(a["shift_px"] for a in ok)

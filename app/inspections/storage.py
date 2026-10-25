@@ -7,6 +7,9 @@ review) can add their outputs next to the uploaded media:
         inspection.json     metadata + per-module status
         media/              uploaded video or photos
         preprocess/         M2 output: frames + preprocess.json
+        analysis/           M3 output: evidence images + analysis.json
+        vlm/                M4 output: vlm.json (Nova Pro severity assessment)
+        agent/              M5 output: agent.json (recommendation + tool trace) + images from OpenCV tools
 """
 import json
 import os

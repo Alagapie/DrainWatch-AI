@@ -107,7 +107,7 @@ def run(media_paths: list[str], out_dir: str, progress=None) -> dict:
         "enhanced": len(enhanced_recs),
         "aligned": sum(a["ok"] for a in alignments),
         "reference_index": records[ref_idx]["index"],
-        "camera_motion": registration.camera_motion(alignments),
+        "camera_motion": registration.camera_motion(alignments, photos=source["kind"] == "images"),
         "issue_counts": dict(Counter(i for q in qualities for i in q["issues"])),
         "enhancement_counts": dict(Counter(s for r in records for s in r["enhancements"])),
         "mean_sharpness": round(sum(q["sharpness"] for q in qualities) / len(qualities), 1),

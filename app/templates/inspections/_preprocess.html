@@ -1,0 +1,111 @@
+{# M2 preprocessing results. Expects: insp, pre #}
+{% set issue_labels = {"blurry": "Blurry", "low_light": "Low light", "low_contrast": "Low contrast", "noisy": "Noisy"} %}
+{% set motion_labels = {"static": "Steady", "handheld": "Handheld", "moving": "Moving", "single_frame": "Single frame", "different_views": "Different views"} %}
+{% macro pre_url(path) -%}
+  {{ url_for('inspections.files', inspection_id=insp.inspection_id, filename='preprocess/' ~ path) }}
+{%- endmacro %}
+{% set s = pre.summary %}
+
+<section class="card">
+  <div class="card-head">
+    <div>
+      <h2><svg class="icon"><use href="#i-sparkle"/></svg> Preprocessing</h2>
+      <p class="muted small">OpenCV {{ pre.opencv_version }} · {{ pre.timings_s.total }} s
+        {% if pre.source.kind == 'video' %} · {{ pre.source.width }}×{{ pre.source.height }} at {{ pre.source.fps | round(1) }} fps{% if pre.source.duration_s %}, {{ pre.source.duration_s }} s{% endif %}{% endif %}</p>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><span class="stat-value">{{ s.kept }}<small>/{{ s.sampled }}</small></span><span class="stat-label">Frames kept</span></div>
+    <div class="stat"><span class="stat-value">{{ s.keyframes }}</span><span class="stat-label">Keyframes</span></div>
+    <div class="stat {{ 'stat-warn' if s.rejected_blurry }}"><span class="stat-value">{{ s.rejected_blurry }}</span><span class="stat-label">Too blurry</span></div>
+    <div class="stat"><span class="stat-value">{{ s.enhanced }}</span><span class="stat-label">Enhanced</span></div>
+    <div class="stat {{ 'stat-warn' if s.aligned < s.kept / 2 }}"><span class="stat-value">{{ s.aligned }}<small>/{{ s.kept }}</small></span><span class="stat-label">Aligned</span></div>
+    <div class="stat"><span class="stat-value stat-text">{{ motion_labels.get(s.camera_motion, s.camera_motion) }}</span><span class="stat-label">Camera</span></div>
+  </div>
+
+  {% if s.issue_counts %}
+  <p class="issue-line">
+    <span class="muted small">Quality issues found:</span>
+    {% for k, v in s.issue_counts.items() %}<span class="pill pill-warn">{{ issue_labels.get(k, k) }} · {{ v }}</span>{% endfor %}
+    {% if s.enhancement_counts %}<span class="muted small">Fixed with:</span>
+      {% for k, v in s.enhancement_counts.items() %}<span class="pill pill-info">{{ 'CLAHE' if k == 'clahe' else k | capitalize }} · {{ v }}</span>{% endfor %}
+    {% endif %}
+  </p>
+  {% else %}
+  <p class="issue-line"><span class="pill pill-ok">Good quality footage, no enhancement needed</span></p>
+  {% endif %}
+
+  <div class="pre-grid">
+    {% if pre.comparison %}
+    <div>
+      <h3>Before / after enhancement</h3>
+      <div class="compare" style="--pos: 50%">
+        <img src="{{ pre_url(pre.comparison.enhanced) }}" alt="Enhanced frame">
+        <img class="compare-before" src="{{ pre_url(pre.comparison.raw) }}" alt="Original frame">
+        <span class="compare-tag left">Original</span>
+        <span class="compare-tag right">{{ pre.comparison.enhancements | join(' + ') | replace('clahe', 'CLAHE') }}</span>
+        <span class="compare-handle"></span>
+        <input type="range" min="0" max="100" value="50" aria-label="Compare original and enhanced">
+      </div>
+    </div>
+    {% endif %}
+
+    {% set n = pre.frames | length %}
+    {% if n > 1 %}
+    <div>
+      <h3>Frame quality over time</h3>
+      {% set w, h = 600, 200 %}
+      {% set max_sharp = [pre.frames | map(attribute='quality.sharpness') | max, 1] | max %}
+      <svg class="chart" viewBox="0 0 {{ w }} {{ h }}" preserveAspectRatio="none" role="img" aria-label="Sharpness and brightness per frame">
+        <line x1="0" y1="{{ h - 1 }}" x2="{{ w }}" y2="{{ h - 1 }}" class="chart-axis"/>
+        <polyline class="chart-sharp" points="{% for f in pre.frames %}{{ (loop.index0 * w / (n - 1)) | round(1) }},{{ (h - 8 - (f.quality.sharpness / max_sharp) * (h - 16)) | round(1) }} {% endfor %}"/>
+        <polyline class="chart-bright" points="{% for f in pre.frames %}{{ (loop.index0 * w / (n - 1)) | round(1) }},{{ (h - 8 - (f.quality.brightness / 255) * (h - 16)) | round(1) }} {% endfor %}"/>
+        {% for f in pre.frames %}{% if not f.alignment.ok %}<line x1="{{ (loop.index0 * w / (n - 1)) | round(1) }}" y1="0" x2="{{ (loop.index0 * w / (n - 1)) | round(1) }}" y2="{{ h }}" class="chart-gap"/>{% endif %}{% endfor %}
+      </svg>
+      <div class="legend">
+        <span><i class="sw sw-sharp"></i>Sharpness</span>
+        <span><i class="sw sw-bright"></i>Brightness</span>
+        <span><i class="sw sw-gap"></i>Not aligned</span>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="frames-head">
+    <h3>Frames <span class="muted">({{ n }})</span></h3>
+    <div class="toggles">
+      <div class="seg" role="group" aria-label="Which frames">
+        <button type="button" data-filter="key" class="on">Keyframes</button>
+        <button type="button" data-filter="all">All</button>
+      </div>
+      <div class="seg" role="group" aria-label="Image version">
+        <button type="button" data-version="enhanced" class="on">Enhanced</button>
+        <button type="button" data-version="raw">Original</button>
+      </div>
+    </div>
+  </div>
+  <div class="frame-grid" id="frame-grid">
+    {% for f in pre.frames %}
+    <figure class="frame {{ 'is-key' if f.keyframe }} {{ 'is-ref' if f.index == s.reference_index }}" {% if not f.keyframe %}hidden{% endif %}>
+      <a href="{{ pre_url(f.enhanced) }}" target="_blank">
+        <img loading="lazy" src="{{ pre_url(f.enhanced) }}" data-enhanced="{{ pre_url(f.enhanced) }}" data-raw="{{ pre_url(f.raw) }}" alt="Frame {{ f.index }}">
+      </a>
+      <span class="frame-time">{{ 't=%.1fs' | format(f.t) if pre.source.kind == 'video' else (f.source_file or 'photo') }}</span>
+      {% if f.index == s.reference_index %}<span class="frame-ref">Reference</span>{% endif %}
+      <figcaption>
+        <div class="frame-tags">
+          {% for i in f.quality.issues %}<span class="tag tag-warn">{{ issue_labels.get(i, i) }}</span>{% endfor %}
+          {% for e in f.enhancements %}<span class="tag tag-info">{{ 'CLAHE' if e == 'clahe' else e | capitalize }}</span>{% endfor %}
+          {% if not f.quality.issues %}<span class="tag tag-ok">Good</span>{% endif %}
+        </div>
+        <div class="frame-meta muted">
+          <span title="Sharpness (Laplacian variance)">Sharp {{ f.quality.sharpness | round | int }}</span>
+          <span title="Mean brightness (0-255)">Bright {{ f.quality.brightness | round | int }}</span>
+          <span title="Aligned to the reference frame">{% if f.alignment.ok %}<svg class="icon ok"><use href="#i-check"/></svg>{% else %}<svg class="icon bad"><use href="#i-x"/></svg>{% endif %}</span>
+        </div>
+      </figcaption>
+    </figure>
+    {% endfor %}
+  </div>
+</section>

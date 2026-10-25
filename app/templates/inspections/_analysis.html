@@ -1,0 +1,205 @@
+{# M3 OpenCV analysis results. Expects: insp, ana #}
+{% macro ana_url(path) -%}
+  {{ url_for('inspections.files', inspection_id=insp.inspection_id, filename='analysis/' ~ path) }}
+{%- endmacro %}
+{% set status_labels = {"clear": ("Clear", "ok"), "clear_water_nearby": ("Clear · water pooling nearby", "info"),
+                         "debris_at_inlet": ("Debris at the inlet", "warn"),
+                         "partial_obstruction": ("Partly obstructed", "warn"), "blockage_suspected": ("Blockage suspected", "error")} %}
+{% set level_class = {"low": "ok", "medium": "warn", "high": "error", "critical": "error"} %}
+{% set m = ana.metrics %}
+{% set r = ana.risk %}
+{# The severity check (M4) can reject OpenCV's drain boxes as false detections. #}
+{% set drains_rejected = vlm is defined and vlm and vlm.checks and vlm.checks.opencv_drain_false_positive %}
+
+<section class="card">
+  <div class="card-head">
+    <div>
+      <h2><svg class="icon"><use href="#i-eye"/></svg> OpenCV analysis</h2>
+      <p class="muted small">OpenCV {{ ana.opencv_version }} · {{ ana.timings_s.total }} s ·
+        {% if ana.temporal_analysis %}{{ ana.frames_registered }} of {{ ana.frames_analyzed }} frames compared over time
+        {% elif ana.scene and ana.scene.views > 1 %}{{ ana.scene.views }} separate views, no time comparison
+        {% else %}single view, no time comparison{% endif %}</p>
+    </div>
+  </div>
+
+  {% set top = ana.views | selectattr('view_id', 'equalto', ana.scene.primary_view) | first if ana.views else none %}
+  {% if ana.scene and not ana.scene.consistent %}
+  <div class="warn-box">
+    <svg class="icon"><use href="#i-eye"/></svg>
+    <div>
+      <strong>These photos don't seem to show the same spot.</strong>
+      <p>OpenCV couldn't line them up, so each one was analysed separately. The score below is for the
+        highest-risk view: <strong>{{ top.label }}</strong>. For the most reliable result, upload photos or a short video of a single drain.</p>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="risk-row">
+    <div class="risk-dial risk-{{ level_class[r.level] }}" style="--val: {{ r.score }}">
+      <div class="risk-dial-inner">
+        <span class="risk-score">{{ r.score | round | int }}</span>
+        <span class="risk-level">{{ r.level | capitalize }} risk</span>
+      </div>
+    </div>
+
+    <div class="risk-detail">
+      <h3>Why this score</h3>
+      {% set parts = [("Persistent water", r.components.water, 35, "water"), ("Debris / waste", r.components.debris, 25, "debris"),
+                      ("Persistence over time", r.components.persistence, 20, "persist"), ("Drain obstruction", r.components.obstruction, 20, "obstruct")] %}
+      <div class="bars">
+        {% for name, val, max_val, cls in parts %}
+        <div class="bar-row">
+          <span class="bar-name">{{ name }}</span>
+          <span class="bar-track"><span class="bar-part bar-{{ cls }}" style="width: {{ (100 * val / max_val) | round }}%"></span></span>
+          <span class="bar-val">{{ val }}<small>/{{ max_val }}</small></span>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="confidence">
+        <span class="muted small">Confidence</span>
+        <span class="bar-track"><span class="bar-part bar-conf" style="width: {{ (r.confidence * 100) | round }}%"></span></span>
+        <strong>{{ (r.confidence * 100) | round | int }}%</strong>
+      </div>
+      {% if not ana.temporal_analysis %}
+      <p class="hint"><svg class="icon"><use href="#i-clock"/></svg> This score comes from a single view, so we can't tell how long the water has been there ("persistence" is counted as unknown). A short video of the drain gives a more reliable result.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><span class="stat-value">{{ m.persistent_water_pct }}<small>%</small></span><span class="stat-label">Ground under water</span></div>
+    <div class="stat"><span class="stat-value">{{ m.persistent_debris_pct }}<small>%</small></span><span class="stat-label">Ground with debris</span></div>
+    {% if ana.temporal_analysis %}
+    <div class="stat"><span class="stat-value">{{ (m.mean_persistence * 100) | round | int }}<small>%</small></span><span class="stat-label">Of frames it persists in</span></div>
+    {% else %}
+    <div class="stat"><span class="stat-value stat-text">Unknown</span><span class="stat-label">Persistence (needs video)</span></div>
+    {% endif %}
+    <div class="stat"><span class="stat-value stat-text">{{ 'Yes' if m.standing_water else ('No' if m.standing_water is sameas false else '—') }}</span><span class="stat-label">Standing (not flowing)</span></div>
+    {% if drains_rejected %}
+    <div class="stat stat-warn"><span class="stat-value">0<small> of {{ ana.drains | length }}</small></span><span class="stat-label">Real drains (others rejected)</span></div>
+    {% else %}
+    <div class="stat"><span class="stat-value">{{ ana.drains | length }}</span><span class="stat-label">Drains found</span></div>
+    {% endif %}
+  </div>
+
+  {% set wl = ana.water_location %}
+  {% if wl and wl.relation not in ('no_water',) %}
+  {% set wl_text = {"drain_blockage": "Water gathers around the drain inlet: likely a blockage",
+                    "surface_depression": "Water pools beside or away from a clear drain: likely a dip in the road surface",
+                    "unclear": "Water and drain position don't clearly point to one cause"} %}
+  <div class="geo">
+    <h3 class="section-title">Where the water sits</h3>
+    {% if wl.relation == 'no_drain' %}
+      <p class="muted">No drain was recognised, so the water's position can't be related to a drain.</p>
+    {% elif drains_rejected %}
+      <p class="rejected-note"><svg class="icon"><use href="#i-x"/></svg> These measurements are relative to a drain detection that the
+        severity check rejected (it is not a real drain), so ignore them. OpenCV's original numbers are kept below for transparency.</p>
+      <div class="geo-facts is-rejected">
+        <span><b>{{ wl.drain_edge_wet_pct }}%</b> of the drain's edge is wet</span>
+        <span>Nearest water: <b>{{ wl.nearest_gap_px | round | int }} px</b> from the drain</span>
+        <span><b>{{ wl.water_away_from_drain_pct }}%</b> of the water is away from the drain</span>
+      </div>
+    {% else %}
+      <p><strong>{{ wl_text.get(wl.cause_hint, wl.cause_hint) }}</strong></p>
+      <div class="geo-facts">
+        <span><b>{{ wl.drain_edge_wet_pct }}%</b> of the drain's edge is wet</span>
+        <span>Puddle centre is <b>{{ wl.puddle_centre_gap_drain_sizes }}×</b> the drain's size from it</span>
+        <span>Nearest water: <b>{{ wl.nearest_gap_px | round | int }} px</b> from the drain</span>
+        <span><b>{{ wl.water_away_from_drain_pct }}%</b> of the water is away from the drain</span>
+      </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if ana.views and ana.views | length > 1 %}
+  <h3 class="section-title">Each view</h3>
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>View</th><th>Risk</th><th>Water</th><th>Debris</th><th>Drains</th><th>Confidence</th></tr></thead>
+      <tbody>
+      {% for v in ana.views | sort(attribute='risk.score', reverse=true) %}
+        <tr class="{{ 'row-primary' if v.view_id == ana.scene.primary_view }}">
+          <td><strong>{{ v.label }}</strong>{% if v.view_id == ana.scene.primary_view %} <span class="pill pill-info">Shown above</span>{% endif %}</td>
+          <td><span class="pill pill-{{ level_class[v.risk.level] }}">{{ v.risk.score | round | int }} · {{ v.risk.level | capitalize }}</span></td>
+          <td>{{ v.metrics.persistent_water_pct }}%</td>
+          <td>{{ v.metrics.persistent_debris_pct }}%</td>
+          <td>{{ v.drains | length }}</td>
+          <td>{{ (v.risk.confidence * 100) | round | int }}%</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {% if ana.drains %}
+  <h3 class="section-title">Drains{% if top and ana.views | length > 1 %} <span class="muted">in {{ top.label }}</span>{% endif %}</h3>
+  {% if drains_rejected %}
+  <p class="rejected-note"><svg class="icon"><use href="#i-x"/></svg> The severity check looked at a close-up of each box and found no real drain.
+    These are OpenCV false detections, so DrainWatch will not recommend work on them.</p>
+  {% endif %}
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>Drain</th><th>Type</th><th>Seen in</th><th title="Grate area covered by debris or water">On the grate</th>
+        <th title="Thin band touching the grate that is wet">Edge wet</th><th title="Debris within half a drain-size">Debris around</th>
+        <th title="Water within one drain-size">Water around</th><th>Condition</th></tr></thead>
+      <tbody>
+      {% for d in ana.drains %}
+        {% set label, cls = status_labels.get(d.status, (d.status, 'info')) %}
+        {% if drains_rejected %}{% set label, cls = ("Not a drain · rejected by severity check", "error") %}{% endif %}
+        <tr class="{{ 'row-rejected' if drains_rejected }}">
+          <td><strong>{{ d.drain_id }}</strong></td>
+          <td>{{ 'Grate' if d.kind == 'grate' else 'Kerb inlet' }}</td>
+          <td>{{ d.seen_in_frames_pct }}% of frames</td>
+          <td>{{ d.obstruction_pct }}%</td>
+          <td>{{ d.edge_wet_pct if d.edge_wet_pct is defined else '—' }}{{ '%' if d.edge_wet_pct is defined }}</td>
+          <td>{{ d.debris_around_pct if d.debris_around_pct is defined else '—' }}{{ '%' if d.debris_around_pct is defined }}</td>
+          <td>{{ d.water_around_pct }}%</td>
+          <td><span class="pill pill-{{ cls }}">{{ label }}</span></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="hint"><svg class="icon"><use href="#i-target"/></svg> No drain was recognised. Try filming closer, with the grate clearly in view.</p>
+  {% endif %}
+
+  <div class="frames-head">
+    <h3>Evidence</h3>
+    <div class="legend">
+      <span><i class="sw sw-water"></i>Water</span>
+      <span><i class="sw sw-debris"></i>Debris</span>
+      <span><i class="sw sw-drain"></i>Drain</span>
+    </div>
+  </div>
+  {% set views = ana.views or [{"view_id": 1, "label": "", "risk": ana.risk, "evidence": ana.evidence}] %}
+  <div class="evidence-grid">
+    {% for v in views | sort(attribute='risk.score', reverse=true) if v.evidence %}
+      {% if v.evidence.heatmap %}
+      <a class="evidence evidence-main" href="{{ ana_url(v.evidence.heatmap) }}" target="_blank">
+        <img src="{{ ana_url(v.evidence.heatmap) }}" alt="Persistence heatmap" loading="lazy">
+        <span class="evidence-cap">Persistence heatmap: where problems stay across frames</span>
+      </a>
+      {% endif %}
+      {% if v.evidence.water_location %}
+      <a class="evidence {{ 'evidence-main' if not v.evidence.heatmap and v.view_id == ana.scene.primary_view }}" href="{{ ana_url(v.evidence.water_location) }}" target="_blank">
+        <img src="{{ ana_url(v.evidence.water_location) }}" alt="Water position relative to the drain" loading="lazy">
+        <span class="evidence-cap">Water vs drain{% if v.label and views | length > 1 %} · {{ v.label }}{% endif %}</span>
+      </a>
+      {% endif %}
+      {% for f in v.evidence.frames %}
+      <a class="evidence {{ 'evidence-main' if loop.first and not v.evidence.heatmap and not v.evidence.water_location and v.view_id == ana.scene.primary_view }}" href="{{ ana_url(f.path) }}" target="_blank">
+        <img src="{{ ana_url(f.path) }}" alt="Annotated frame {{ f.index }}" loading="lazy">
+        {% if v.label and views | length > 1 %}<span class="evidence-cap">{{ v.label }} · risk {{ v.risk.score | round | int }}</span>{% endif %}
+      </a>
+      {% endfor %}
+    {% endfor %}
+  </div>
+  {% if ana.per_frame | length > 1 %}
+  <img class="timeline" src="{{ ana_url(ana.evidence.timeline) }}" alt="Water and debris coverage over time" loading="lazy">
+  {% endif %}
+  {% if ana.evidence.privacy_regions_blurred %}
+  <p class="muted small"><svg class="icon"><use href="#i-shield"/></svg> {{ ana.evidence.privacy_regions_blurred }} face/plate region(s) blurred in evidence images.</p>
+  {% endif %}
+</section>

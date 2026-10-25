@@ -1,0 +1,117 @@
+{# M4 severity check (Nova Pro). Expects: insp, vlm #}
+{% set a = vlm.assessment %}
+{% set sev_class = {"low": "ok", "medium": "warn", "high": "error", "critical": "error"} %}
+{% set drain_labels = {"clear": "Clear", "partially_blocked": "Partly blocked", "blocked": "Blocked", "not_visible": "Not visible"} %}
+{% set drain_class = {"clear": "ok", "partially_blocked": "warn", "blocked": "error", "not_visible": "info"} %}
+{% set water_class = {"none": "ok", "small": "info", "moderate": "warn", "large": "error", "flooding": "error"} %}
+{% set cause_labels = {"drain_blockage": "Drain blockage", "surface_depression": "Surface depression",
+                       "drain_overloaded": "Drain overloaded", "unclear": "Unclear", "none": "No water problem"} %}
+{% set crew_labels = {"drain_cleaning": "Drain-cleaning crew", "road_repair": "Road-repair crew",
+                      "engineering_review": "Engineering review", "none": "No crew needed"} %}
+
+<section class="card vlm-card">
+  <div class="card-head">
+    <div>
+      <h2><svg class="icon"><use href="#i-scale"/></svg> Severity check</h2>
+      <p class="muted small">{{ vlm.model_id }} on Amazon Bedrock ({{ vlm.region }}) ·
+        {% if vlm.timings_s.model %}model {{ vlm.timings_s.model }} s of {{ vlm.timings_s.total }} s total{% else %}{{ vlm.timings_s.total }} s{% endif %}
+        {% if vlm.usage.inputTokens %} · {{ vlm.usage.inputTokens }} in / {{ vlm.usage.outputTokens }} out tokens{% endif %}</p>
+    </div>
+  </div>
+
+  <div class="vlm-top" style="margin-top: .25rem">
+    <div class="sev-badge sev-{{ sev_class[a.severity] }}">
+      <span class="sev-level">{{ a.severity | upper }}</span>
+      <span class="sev-score">{{ a.severity_score | round | int }}<small>/100</small></span>
+      <span class="sev-conf">{{ (a.confidence * 100) | round | int }}% confident</span>
+    </div>
+    <div class="vlm-summary">
+      <p class="vlm-scene">{{ a.scene_description }}</p>
+      <div class="chips">
+        <span class="pill pill-{{ drain_class[a.drain_condition] }}">Drain: {{ drain_labels[a.drain_condition] }}</span>
+        <span class="pill pill-{{ water_class[a.water_extent] }}">Water: {{ a.water_extent | capitalize }}{% if a.water_type not in ('none',) %} ({{ a.water_type }}){% endif %}</span>
+        {% if a.debris_present %}<span class="pill pill-warn">Debris: {{ a.debris_types | join(', ') or 'yes' }}{% if a.debris_on_drain %} · on the drain{% endif %}</span>
+        {% else %}<span class="pill pill-ok">No debris</span>{% endif %}
+      </div>
+      {% if a.hazards %}
+      <ul class="hazards">
+        {% for h in a.hazards %}<li><svg class="icon"><use href="#i-x"/></svg> {{ h }}</li>{% endfor %}
+      </ul>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if a.probable_cause %}
+  <div class="cause cause-{{ a.probable_cause }}">
+    <div class="cause-main">
+      <span class="cs-label">Likely cause</span>
+      <strong>{{ cause_labels.get(a.probable_cause, a.probable_cause) }}</strong>
+      {% if a.recommended_crew and a.recommended_crew != 'none' %}<span class="pill pill-info">→ {{ crew_labels.get(a.recommended_crew, a.recommended_crew) }}</span>{% endif %}
+    </div>
+    {% if a.cause_reasoning %}<p>{{ a.cause_reasoning }}</p>{% endif %}
+    {% if a.surface_damage %}<p class="muted small"><strong>Surface damage:</strong> {{ a.surface_damage_description or 'visible' }}</p>{% endif %}
+    {% if vlm.opencv_cause_hint and vlm.opencv_cause_hint not in ('none',) %}
+    <p class="muted small">OpenCV's geometry suggested: <strong>{{ cause_labels.get(vlm.opencv_cause_hint, vlm.opencv_cause_hint) }}</strong>
+      {% if vlm.opencv_cause_hint == a.probable_cause %}<span class="pill pill-ok">matches</span>{% elif vlm.opencv_cause_hint != 'unclear' %}<span class="pill pill-warn">model disagrees</span>{% endif %}</p>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <div class="compare-scores">
+    <div class="cs-item">
+      <span class="cs-label">OpenCV measurement</span>
+      <span class="cs-value">{{ vlm.opencv.score | round | int }} <small>{{ vlm.opencv.level }}</small></span>
+    </div>
+    <span class="cs-arrow">→</span>
+    <div class="cs-item">
+      <span class="cs-label">Nova Pro assessment</span>
+      <span class="cs-value">{{ a.severity_score | round | int }} <small>{{ a.severity }}</small></span>
+    </div>
+    <div class="cs-verdict">
+      {% if vlm.same_band is defined %}
+        {% if vlm.same_band %}<span class="pill pill-ok">Same severity band</span>
+        {% else %}<span class="pill pill-warn">Different band ({{ '%+d' | format(vlm.difference | round | int) }})</span>{% endif %}
+      {% endif %}
+      {% set reliable = vlm.checks.opencv_reliable if vlm.checks else a.agrees_with_opencv %}
+      {% if reliable %}
+        <span class="pill pill-ok"><svg class="icon"><use href="#i-check"/></svg> OpenCV measurements confirmed</span>
+      {% else %}
+        <span class="pill pill-warn">Model corrects OpenCV</span>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if vlm.checks and vlm.checks.issues %}
+  <div class="warn-box">
+    <svg class="icon"><use href="#i-eye"/></svg>
+    <div>
+      <strong>Cross-check found problems with the OpenCV result</strong>
+      <ul class="check-list">{% for i in vlm.checks.issues %}<li>{{ i }}</li>{% endfor %}</ul>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if a.opencv_corrections and not (a.opencv_corrections | length == 1 and a.opencv_corrections[0] | lower in ('none', 'n/a', '')) %}
+  <div class="corrections">
+    <h3>Where the model thinks OpenCV is off</h3>
+    <ul>{% for c in a.opencv_corrections %}<li>{{ c }}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+
+  <div class="reasoning">
+    <h3>Reasoning</h3>
+    <p>{{ a.reasoning }}</p>
+  </div>
+
+  <details class="sent">
+    <summary>What the model was shown ({{ vlm.images_sent | length }} images + OpenCV measurements)</summary>
+    <div class="sent-grid">
+      {% for img in vlm.images_sent %}
+      <a href="{{ url_for('inspections.files', inspection_id=insp.inspection_id, filename=img.path) }}" target="_blank">
+        <img src="{{ url_for('inspections.files', inspection_id=insp.inspection_id, filename=img.path) }}" alt="" loading="lazy">
+        <span>{{ loop.index }}. {{ img.label }}</span>
+      </a>
+      {% endfor %}
+    </div>
+  </details>
+</section>

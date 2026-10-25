@@ -12,7 +12,7 @@ BLUR_REJECT = 60.0       # Laplacian variance (contrast-stretched) below this: u
 BLUR_LOW = 300.0         # below this: blurry -> unsharp mask
 DARK = 75.0              # mean brightness below this: low light -> gamma
 LOW_CONTRAST = 45.0      # grey-level std below this: low contrast -> CLAHE
-NOISY = 3.5              # robust noise sigma above this: noisy -> NL-means denoise
+NOISY = 6.0              # noise sigma (flat pixels) above this: noisy -> NL-means denoise
 
 ENHANCEMENT_ORDER = ("gamma", "denoise", "clahe", "sharpen")
 
@@ -36,10 +36,18 @@ def _stretch(gray: np.ndarray) -> np.ndarray:
 
 
 def noise_sigma(gray: np.ndarray) -> float:
-    """Immerkaer's fast noise estimate (std of additive noise, grey levels)."""
-    h, w = gray.shape
-    conv = cv2.filter2D(gray.astype(np.float32), -1, _NOISE_KERNEL)
-    return float(np.sqrt(np.pi / 2) * np.abs(conv[1:-1, 1:-1]).sum() / (6.0 * (w - 2) * (h - 2)))
+    """Immerkaer's noise estimate, measured only on the flattest pixels.
+
+    Texture (asphalt grain, gravel) also excites the Laplacian-like kernel, so
+    pixels with strong local gradients are excluded before averaging.
+    """
+    g = gray.astype(np.float32)
+    conv = np.abs(cv2.filter2D(g, -1, _NOISE_KERNEL))[1:-1, 1:-1]
+    grad = cv2.magnitude(cv2.Sobel(g, cv2.CV_32F, 1, 0), cv2.Sobel(g, cv2.CV_32F, 0, 1))[1:-1, 1:-1]
+    flat = grad <= np.percentile(grad, 25)
+    if flat.sum() < 100:
+        flat = np.ones_like(grad, bool)
+    return float(np.sqrt(np.pi / 2) * conv[flat].mean() / 6.0)
 
 
 def assess(bgr: np.ndarray) -> dict:

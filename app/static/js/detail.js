@@ -4,7 +4,9 @@
   const live = document.getElementById("live");
   if (live) {
     const message = document.getElementById("live-message");
+    const stage = document.getElementById("live-stage");
     const bar = document.getElementById("live-bar");
+    const stageNames = { preprocess: "Preprocessing", analysis: "OpenCV analysis", vlm: "Severity check", agent: "Recommendation" };
     const poll = async () => {
       try {
         const res = await fetch(live.dataset.statusUrl, { headers: { Accept: "application/json" } });
@@ -12,6 +14,7 @@
         if (!data.running) return window.location.reload();
         if (data.progress) {
           message.textContent = data.progress.message;
+          stage.textContent = (stageNames[data.progress.stage] || "Processing") + "…";
           bar.style.width = Math.round(data.progress.fraction * 100) + "%";
         }
       } catch (_) { /* keep polling */ }
