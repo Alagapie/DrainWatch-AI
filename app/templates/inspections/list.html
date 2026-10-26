@@ -4,6 +4,7 @@
 {% macro stage_summary(status) -%}
   {%- set done = status.values() | select("equalto", "done") | list | length -%}
   {%- if status.review == "done" -%}<span class="pill pill-ok">Reviewed</span>
+  {%- elif status.agent == "done" -%}<span class="pill pill-warn">Needs review</span>
   {%- elif "failed" in status.values() -%}<span class="pill pill-error">Needs attention</span>
   {%- elif "running" in status.values() -%}<span class="pill pill-warn">Analysing</span>
   {%- elif done == 1 -%}<span class="pill pill-info">Uploaded</span>

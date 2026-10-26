@@ -35,7 +35,8 @@ class AgentContext:
         self.out_dir = storage.stage_dir(inspection_id, "agent")
         os.makedirs(self.out_dir, exist_ok=True)
         self.recommendation: dict | None = None
-        self.called: dict[str, dict] = {}      # tool name -> last result
+        self.called: dict[str, dict] = {}      # tool name -> last successful result
+        self.attempted: set[str] = set()       # tools tried, even if the data was unavailable
 
     def real_drains(self) -> list[dict]:
         if (self.vlm or {}).get("checks", {}).get("opencv_drain_false_positive"):
@@ -44,7 +45,9 @@ class AgentContext:
 
     def required_checks(self) -> list[str]:
         """Checks the agent must run before it may submit (the investigation policy)."""
-        needed = ["get_weather", "get_site_history"]
+        site = self.record["site"]
+        has_coords = site.get("lat") is not None and site.get("lon") is not None
+        needed = ["get_site_history"] + (["get_weather"] if has_coords else [])
         history = self.called.get("get_site_history", {})
         if history.get("earlier_inspections", 0) > 0:
             needed.append("compare_with_previous_inspection")
@@ -60,16 +63,16 @@ class AgentContext:
         a = (self.vlm or {}).get("assessment", {})
         severity = a.get("severity", "low")
         level = {"critical": 1, "high": 2, "medium": 3, "low": 4}[severity]
-        reasons = [f"severity is {severity} (P{level})"]
+        reasons = [f"the severity is {severity}"]
         if self.called.get("get_site_history", {}).get("earlier_inspections", 0) > 0 and severity != "low":
             level -= 1
-            reasons.append("problem is recurring at this site (+1)")
+            reasons.append("it keeps happening at this site (one level more urgent)")
         if self.called.get("get_weather", {}).get("heavy_rain_expected") and severity in ("high", "medium"):
             level -= 1
-            reasons.append("heavy rain expected (+1)")
+            reasons.append("heavy rain is forecast (one level more urgent)")
         if self.called.get("compare_with_previous_inspection", {}).get("trend") == "worse":
             level -= 1
-            reasons.append("worse than the previous visit (+1)")
+            reasons.append("it is worse than last time (one level more urgent)")
         level = max(1, min(4, level))
         if severity == "low" and level == 4:
             actions = ["monitor"]
@@ -284,7 +287,7 @@ def submit_recommendation(ctx: AgentContext, priority: str, action: str, crew: s
         errors.append(f"action must be one of {ACTIONS}")
     if crew not in CREWS:
         errors.append(f"crew must be one of {CREWS}")
-    missing = [t for t in ctx.required_checks() if t not in ctx.called]
+    missing = [t for t in ctx.required_checks() if t not in ctx.attempted]
     if missing:
         errors.append("Investigation incomplete. Before submitting, call: " + ", ".join(missing))
     if errors:
@@ -368,6 +371,8 @@ def call(ctx: AgentContext, name: str, args: dict) -> dict:
         result = {"error": f"bad arguments for {name}: {e}"}
     except Exception as e:
         result = {"error": f"{type(e).__name__}: {e}"}
+    if not (isinstance(result, dict) and str(result.get("error", "")).startswith("bad arguments")):
+        ctx.attempted.add(name)
     if "error" not in result:
         ctx.called[name] = result
     return result

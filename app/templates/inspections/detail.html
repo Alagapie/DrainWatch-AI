@@ -79,6 +79,7 @@
 
 {% if agent and insp.status.agent == 'done' %}
   {% include "inspections/_agent.html" %}
+  {% if not running %}{% include "inspections/_review.html" %}{% endif %}
 {% endif %}
 
 {% if vlm and insp.status.vlm == 'done' %}
@@ -150,6 +151,7 @@
 </section>
 {% endif %}
 
+{% include "inspections/_audit.html" %}
 {% endblock %}
 
 {% block scripts %}

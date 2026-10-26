@@ -12,7 +12,7 @@ from flask import current_app
 
 from ..ai import agent, severity
 from ..vision import analysis, preprocess
-from . import storage
+from . import review, storage
 
 _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="pipeline")
 _lock = threading.Lock()
@@ -53,6 +53,7 @@ def start(app, inspection_id: str) -> bool:
 def _run(app, inspection_id: str) -> None:
     with app.app_context():
         try:
+            review.reset_for_rerun(inspection_id)
             for stage, _ in STAGE_RUNNERS:              # later stages are stale once we re-run
                 storage.set_stage(inspection_id, stage, "pending")
             for stage, runner in STAGE_RUNNERS:
@@ -72,11 +73,36 @@ def _run_stage(inspection_id: str, stage: str, runner) -> bool:
     def report(message, fraction):
         _progress[inspection_id] = {"stage": stage, "message": message, "fraction": round(fraction, 3)}
 
+    actor, label = STAGE_ACTORS[stage]
     try:
-        runner(inspection_id, record, out_dir, report)
+        result = runner(inspection_id, record, out_dir, report)
     except Exception as e:
         traceback.print_exc()
         storage.set_stage(inspection_id, stage, "failed", error=str(e))
+        storage.audit(inspection_id, actor, f"{label} failed", str(e))
         return False
     storage.set_stage(inspection_id, stage, "done")
+    storage.audit(inspection_id, actor, f"{label} done", _audit_detail(stage, result))
     return True
+
+
+STAGE_ACTORS = {"preprocess": ("OpenCV", "Preprocessing"), "analysis": ("OpenCV", "Analysis"),
+                "vlm": ("Nova Pro", "Severity check"), "agent": ("DrainWatch agent", "Recommendation")}
+
+
+def _audit_detail(stage: str, result) -> str:
+    try:
+        if stage == "preprocess":
+            s = result["summary"]
+            return f"{s['kept']} of {s['sampled']} frames kept, {s['aligned']} aligned"
+        if stage == "analysis":
+            return f"risk {result['risk']['score']} ({result['risk']['level']}), {len(result['drains'])} drain(s) found"
+        if stage == "vlm":
+            a = result["assessment"]
+            return f"{a['severity']} ({a['severity_score']}), likely cause: {a['probable_cause'].replace('_', ' ')}"
+        if stage == "agent":
+            r = result["recommendation"]
+            return f"{r['priority']}, {r['action'].replace('_', ' ')}, awaiting supervisor approval"
+    except (KeyError, TypeError, AttributeError):
+        pass
+    return ""

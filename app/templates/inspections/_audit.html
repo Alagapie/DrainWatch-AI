@@ -1,0 +1,20 @@
+{# M6 audit trail. Expects: audit (newest first) #}
+<section class="card">
+  <div class="card-head">
+    <h2><svg class="icon"><use href="#i-shield"/></svg> Audit trail</h2>
+    <span class="muted small">{{ audit | length }} event{{ '' if audit | length == 1 else 's' }}</span>
+  </div>
+  {% if audit %}
+  <ol class="audit">
+    {% for e in audit %}
+    <li>
+      <span class="audit-time" title="{{ e.at | datetime }}">{{ e.at | ago }}</span>
+      <span class="audit-actor">{{ e.actor }}</span>
+      <span class="audit-event"><strong>{{ e.event }}</strong>{% if e.detail %} · <span class="muted">{{ e.detail }}</span>{% endif %}</span>
+    </li>
+    {% endfor %}
+  </ol>
+  {% else %}
+  <p class="muted">No events recorded yet (inspections created before the audit trail existed have no history).</p>
+  {% endif %}
+</section>

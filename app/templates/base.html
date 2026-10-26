@@ -28,6 +28,10 @@
            class="{{ 'active' if request.endpoint in ('inspections.list_view', 'inspections.detail') }}">
           <svg class="icon"><use href="#i-list"/></svg><span>Inspections</span>
         </a>
+        <a href="{{ url_for('work_orders.list_view') }}"
+           class="{{ 'active' if request.endpoint == 'work_orders.list_view' }}">
+          <svg class="icon"><use href="#i-check"/></svg><span>Work orders</span>
+        </a>
       </nav>
     </div>
   </header>

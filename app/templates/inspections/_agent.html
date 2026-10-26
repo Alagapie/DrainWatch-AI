@@ -1,25 +1,24 @@
-{# M5 agent recommendation + decision trace. Expects: insp, agent #}
+{# M5 agent recommendation + plain-language decision steps. Expects: insp, agent, agent_steps, agent_evidence #}
 {% set rec = agent.recommendation %}
 {% set prio_class = {"P1": "error", "P2": "warn", "P3": "info", "P4": "ok"} %}
 {% set action_labels = {"create_work_order": "Create a work order", "request_more_footage": "Request better footage",
                         "route_to_supervisor": "Send to a supervisor to decide", "monitor": "Monitor, no work needed now"} %}
 {% set crew_labels = {"drain_cleaning": "Drain-cleaning crew", "road_repair": "Road-repair crew",
                       "engineering_review": "Engineering review", "none": "No crew"} %}
-{% set tool_labels = {"reanalyze_frame": "Re-analysed a frame with OpenCV", "inspect_drain_closeup": "Zoomed into the drain with OpenCV",
-                      "compare_with_previous_inspection": "Compared with the previous visit (OpenCV registration)",
-                      "get_site_history": "Checked this site's history", "find_nearby_reports": "Looked for nearby reports",
-                      "get_weather": "Checked rainfall", "submit_recommendation": "Submitted the recommendation"} %}
-{% set kind_icons = {"opencv": "i-eye", "data": "i-search", "action": "i-check"} %}
+{% set step_icons = {"image": "i-eye", "info": "i-search", "refused": "i-x", "done": "i-check"} %}
 {% macro file_url(path) -%}{{ url_for('inspections.files', inspection_id=insp.inspection_id, filename=path) }}{%- endmacro %}
 
 <section class="card agent-card">
   <div class="card-head">
     <div>
       <h2><svg class="icon"><use href="#i-bot"/></svg> Recommendation</h2>
-      <p class="muted small">Agent · {{ agent.model_id }} · {{ agent.tools_used | length }} tool calls · {{ agent.timings_s.total }} s
-        · {{ agent.usage.inputTokens }} in / {{ agent.usage.outputTokens }} out tokens</p>
+      <p class="muted small">Prepared by the DrainWatch agent in {{ agent.timings_s.total | round | int }} seconds</p>
     </div>
-    <span class="pill pill-warn">Awaiting supervisor approval</span>
+    {% if insp.review %}
+      <a href="#decision" class="pill {{ 'pill-error' if insp.review.decision == 'reject' else 'pill-ok' }}">{{ insp.review.label }} by {{ insp.review.reviewer }}</a>
+    {% else %}
+      <a href="#decision" class="pill pill-warn">Awaiting supervisor approval</a>
+    {% endif %}
   </div>
 
   <div class="rec-top">
@@ -37,10 +36,11 @@
   {% if rec.policy %}
     {% if rec.policy.followed %}
     <p class="policy policy-ok"><svg class="icon"><use href="#i-shield"/></svg>
-      <span><strong>Policy check passed:</strong> {{ rec.policy.reasons | join('; ') }} → {{ rec.policy.priority }}.</span></p>
+      <span><strong>Checked against DrainWatch's rules:</strong> {{ rec.policy.reasons | join(', and ') }}, so the rules give
+        {{ rec.policy.priority }} ({{ rec.response_time }}). The agent's choice matches.</span></p>
     {% else %}
     <p class="policy policy-override"><svg class="icon"><use href="#i-shield"/></svg>
-      <span><strong>The agent overrode the policy</strong> ({{ rec.policy.deviations | join('; ') }}).
+      <span><strong>The agent went against DrainWatch's rules</strong> (the rules suggest {{ rec.policy.priority }}).
         Its reason: “{{ rec.policy.override_reason }}”. Please check this carefully.</span></p>
     {% endif %}
   {% endif %}
@@ -49,51 +49,39 @@
     <h3>Why</h3>
     <p>{{ rec.reasoning }}</p>
   </div>
-  {% if rec.evidence_used %}
-  <div class="reasoning">
-    <h3>Evidence used</h3>
-    <ul class="evidence-list">{% for e in rec.evidence_used %}<li>{{ e }}</li>{% endfor %}</ul>
-  </div>
-  {% endif %}
   {% if rec.follow_up %}
-  <p class="hint"><svg class="icon"><use href="#i-clock"/></svg> <span><strong>Follow-up:</strong> {{ rec.follow_up }}</span></p>
+  <p class="hint"><svg class="icon"><use href="#i-clock"/></svg> <span><strong>Next:</strong> {{ rec.follow_up }}</span></p>
   {% endif %}
 
-  <details class="trace" open>
-    <summary>How the agent decided ({{ agent.trace | selectattr('type', 'equalto', 'tool') | list | length }} steps)</summary>
-    <ol class="timeline">
+  <div class="steps-block">
+    <h3>How the agent decided</h3>
+    <ol class="steps">
+      {% for s in agent_steps %}
+      <li class="step step-{{ s.state }}">
+        <span class="step-icon"><svg class="icon"><use href="#{{ step_icons.get(s.state, 'i-search') }}"/></svg></span>
+        <div class="step-body">
+          <strong>{{ s.title }}</strong>
+          {% if s.state == 'image' %}<span class="step-tag">looked at the image</span>{% endif %}
+          <p>{{ s.text }}</p>
+          {% if s.image %}
+          <a href="{{ file_url(s.image) }}" target="_blank" class="step-img"><img src="{{ file_url(s.image) }}" alt="" loading="lazy"></a>
+          {% endif %}
+        </div>
+      </li>
+      {% endfor %}
+    </ol>
+  </div>
+
+  <details class="trace">
+    <summary>Technical details (for engineers)</summary>
+    <p class="muted small">{{ agent.model_id }} · {{ agent.tools_used | length }} tool calls · {{ agent.usage.inputTokens }} in / {{ agent.usage.outputTokens }} out tokens
+      {% if agent_evidence %} · evidence cited: {{ agent_evidence | join(', ') }}{% endif %}</p>
+    <ol class="raw-trace">
       {% for step in agent.trace %}
         {% if step.type == 'tool' %}
-        {% set refused = step.tool == 'submit_recommendation' and step.output.error %}
-        <li class="tl tl-{{ 'refused' if refused else step.kind }}">
-          <span class="tl-dot"><svg class="icon"><use href="#{{ 'i-x' if refused else kind_icons.get(step.kind, 'i-search') }}"/></svg></span>
-          <div class="tl-body">
-            <div class="tl-head">
-              <strong>{% if refused %}{{ 'Policy check refused the recommendation' if 'Policy check' in step.output.error else 'Tried to submit too early' }}{% else %}{{ tool_labels.get(step.tool, step.tool) }}{% endif %}</strong>
-              <span class="tag {{ 'tag-info' if step.kind == 'opencv' else ('tag-ok' if step.kind == 'action' else 'tag-warn') }}">{{ 'OpenCV tool' if step.kind == 'opencv' else ('Action' if step.kind == 'action' else 'Data') }}</span>
-              <span class="muted small">{{ step.seconds }} s</span>
-            </div>
-            {% if step.input %}<p class="tl-input muted small">{% for k, v in step.input.items() if k not in ('summary', 'reasoning', 'evidence_used', 'follow_up') %}{{ k }}={{ v }}{% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
-            {% if step.tool == 'submit_recommendation' and step.output.error %}
-            <p class="refused"><svg class="icon"><use href="#i-x"/></svg> Refused: {{ step.output.error }}</p>
-            {% elif step.tool != 'submit_recommendation' %}
-            <dl class="tl-out">
-              {% for k, v in step.output.items() if k != 'image' %}
-                <dt>{{ k | replace('_', ' ') }}</dt>
-                <dd>{% if v is mapping or (v is iterable and v is not string) %}<code>{{ v | tojson }}</code>{% else %}{{ v }}{% endif %}</dd>
-              {% endfor %}
-            </dl>
-            {% endif %}
-            {% if step.output.image %}
-            <a href="{{ file_url(step.output.image) }}" target="_blank" class="tl-img"><img src="{{ file_url(step.output.image) }}" alt="" loading="lazy"></a>
-            {% endif %}
-          </div>
-        </li>
-        {% elif step.type == 'thought' %}
-        <li class="tl tl-thought">
-          <span class="tl-dot"><svg class="icon"><use href="#i-sparkle"/></svg></span>
-          <div class="tl-body"><p class="muted small"><em>{{ step.text }}</em></p></div>
-        </li>
+        <li><code>{{ step.tool }}({{ step.input | tojson }})</code><pre>{{ step.output | tojson(indent=1) }}</pre></li>
+        {% else %}
+        <li class="muted"><em>{{ step.text }}</em></li>
         {% endif %}
       {% endfor %}
     </ol>

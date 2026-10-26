@@ -23,6 +23,21 @@
     setTimeout(poll, 800);
   }
 
+  // Supervisor decision form: show edit fields for "Edit and approve"; a reason is required to reject.
+  const decisionForm = document.getElementById("decision-form");
+  if (decisionForm) {
+    const editFields = document.getElementById("edit-fields");
+    const note = decisionForm.querySelector("textarea[name=note]");
+    const hint = document.getElementById("note-hint");
+    decisionForm.querySelectorAll("input[name=decision]").forEach((radio) =>
+      radio.addEventListener("change", () => {
+        editFields.hidden = radio.value !== "edit";
+        note.required = radio.value === "reject";
+        hint.textContent = radio.value === "reject" ? "required: why are you rejecting?" : "optional";
+      })
+    );
+  }
+
   // Before/after comparison slider.
   document.querySelectorAll(".compare").forEach((box) => {
     const range = box.querySelector("input[type=range]");

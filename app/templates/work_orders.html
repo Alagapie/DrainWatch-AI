@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Work orders · DrainWatch AI{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Work orders</h1>
+    <p class="muted">{{ orders | selectattr('status', 'equalto', 'open') | list | length }} open · created when a supervisor approves a recommendation</p>
+  </div>
+</div>
+
+{% if orders %}
+<div class="card table-card">
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>Work order</th><th>Priority</th><th>Site</th><th>Crew</th><th>Due</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+      {% for o in orders %}
+        <tr class="{{ 'row-done' if o.status == 'done' }}">
+          <td><strong>{{ o.id }}</strong><div class="muted small wo-sum">{{ o.summary }}</div></td>
+          <td><span class="pill pill-{{ {'P1': 'error', 'P2': 'warn', 'P3': 'info', 'P4': 'ok'}[o.priority] }}">{{ o.priority }}</span></td>
+          <td>{{ o.site.site_id or '—' }}{% if o.site.address %}<div class="muted small">{{ o.site.address }}</div>{% endif %}</td>
+          <td>{{ crew_labels.get(o.crew, o.crew) | capitalize }}</td>
+          <td>{{ o.due | datetime }}</td>
+          <td><span class="pill {{ 'pill-ok' if o.status == 'done' else 'pill-warn' }}">{{ 'Done' if o.status == 'done' else 'Open' }}</span></td>
+          <td><a href="{{ url_for('inspections.detail', inspection_id=o.inspection_id) }}#decision">Open</a></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="card empty">
+  <span class="empty-icon"><svg><use href="#i-check"/></svg></span>
+  <h2>No work orders yet</h2>
+  <p class="muted">When a supervisor approves a recommendation, the work order appears here.</p>
+</div>
+{% endif %}
+{% endblock %}

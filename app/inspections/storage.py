@@ -10,9 +10,11 @@ review) can add their outputs next to the uploaded media:
         analysis/           M3 output: evidence images + analysis.json
         vlm/                M4 output: vlm.json (Nova Pro severity assessment)
         agent/              M5 output: agent.json (recommendation + tool trace) + images from OpenCV tools
+        audit.jsonl         M6: append-only log of every event (who, what, when)
 """
 import json
 import os
+import threading
 import time
 import uuid
 from datetime import datetime, timezone
@@ -21,6 +23,13 @@ from flask import current_app
 from werkzeug.utils import secure_filename
 
 STAGES = ["upload", "preprocess", "analysis", "vlm", "agent", "review"]
+
+# inspection.json is updated by the pipeline thread and by web requests (reviews): serialise writes.
+_write_lock = threading.RLock()
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 class UploadError(ValueError):
@@ -112,6 +121,8 @@ def create_inspection(files, form) -> dict:
     }
     record["status"]["upload"] = "done"
     save(record)
+    audit(inspection_id, record["reporter"] or "Reporter", "Footage submitted",
+          f"{len(saved)} {'video' if kind == 'video' else 'photo(s)'}" + (f" for site {site['site_id']}" if site["site_id"] else ""))
     return record
 
 
@@ -143,15 +154,37 @@ def load(inspection_id: str) -> dict | None:
     return record
 
 
+def update(inspection_id: str, change) -> dict:
+    """Load, apply `change(record)` and save, as one locked step."""
+    with _write_lock:
+        record = load(inspection_id)
+        change(record)
+        save(record)
+        return record
+
+
 def set_stage(inspection_id: str, stage: str, state: str, error: str | None = None) -> dict:
-    record = load(inspection_id)
-    record["status"][stage] = state
-    if error:
-        record["errors"][stage] = error
-    else:
-        record["errors"].pop(stage, None)
-    save(record)
-    return record
+    def change(record):
+        record["status"][stage] = state
+        if error:
+            record["errors"][stage] = error
+        else:
+            record["errors"].pop(stage, None)
+    return update(inspection_id, change)
+
+
+def audit(inspection_id: str, actor: str, event: str, detail: str = "") -> None:
+    line = json.dumps({"at": now_iso(), "actor": actor, "event": event, "detail": detail})
+    with _write_lock, open(os.path.join(inspection_dir(inspection_id), "audit.jsonl"), "a", encoding="utf-8") as fh:
+        fh.write(line + "\n")
+
+
+def load_audit(inspection_id: str) -> list[dict]:
+    path = os.path.join(inspection_dir(inspection_id), "audit.jsonl")
+    if not os.path.exists(path):
+        return []
+    with open(path, encoding="utf-8") as fh:
+        return [json.loads(line) for line in fh if line.strip()]
 
 
 def stage_dir(inspection_id: str, stage: str) -> str:

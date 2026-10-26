@@ -1,7 +1,8 @@
 from flask import (abort, current_app, flash, jsonify, redirect, render_template, request,
                    send_from_directory, url_for)
 
-from . import bp, pipeline, storage
+from ..ai import explain
+from . import bp, pipeline, review, storage
 
 # Sub-folders of an inspection that may be served to the browser.
 SERVABLE = ("media/", "preprocess/", "analysis/", "vlm/", "agent/")
@@ -46,6 +47,7 @@ def list_view():
 @bp.route("/<inspection_id>")
 def detail(inspection_id):
     record = _load_or_404(inspection_id)
+    agent = storage.load_result(inspection_id, "agent")
     return render_template(
         "inspections/detail.html",
         insp=record,
@@ -55,8 +57,39 @@ def detail(inspection_id):
         pre=storage.load_result(inspection_id, "preprocess"),
         ana=storage.load_result(inspection_id, "analysis"),
         vlm=storage.load_result(inspection_id, "vlm"),
-        agent=storage.load_result(inspection_id, "agent"),
+        agent=agent,
+        agent_steps=explain.steps(agent["trace"]) if agent else [],
+        agent_evidence=explain.plain_evidence(agent["recommendation"].get("evidence_used", [])) if agent else [],
+        audit=list(reversed(storage.load_audit(inspection_id))),
+        review_options={"priorities": review.PRIORITIES, "actions": review.ACTIONS, "crews": review.CREWS},
     )
+
+
+@bp.route("/<inspection_id>/review", methods=["POST"])
+def submit_review(inspection_id):
+    _load_or_404(inspection_id)
+    try:
+        r = review.submit(inspection_id, request.form)
+    except review.ReviewError as e:
+        flash(str(e), "error")
+    else:
+        msg = f"Decision recorded: {r['label']}."
+        if r["work_order"]:
+            msg += f" Work order {r['work_order']['id']} created."
+        flash(msg, "success")
+    return redirect(url_for("inspections.detail", inspection_id=inspection_id) + "#decision")
+
+
+@bp.route("/<inspection_id>/work-order/complete", methods=["POST"])
+def complete_work_order(inspection_id):
+    _load_or_404(inspection_id)
+    try:
+        wo = review.complete_work_order(inspection_id, request.form.get("who"), request.form.get("note", "").strip())
+    except review.ReviewError as e:
+        flash(str(e), "error")
+    else:
+        flash(f"Work order {wo['id']} marked as done.", "success")
+    return redirect(request.form.get("next") or url_for("inspections.detail", inspection_id=inspection_id))
 
 
 @bp.route("/<inspection_id>/process", methods=["POST"])

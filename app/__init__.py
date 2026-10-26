@@ -15,6 +15,8 @@ def create_app(config_class=Config):
 
     from .inspections import bp as inspections_bp
     app.register_blueprint(inspections_bp)
+    from .work_orders import bp as work_orders_bp
+    app.register_blueprint(work_orders_bp)
 
     @app.route("/")
     def index():

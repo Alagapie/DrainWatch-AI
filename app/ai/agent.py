@@ -19,8 +19,8 @@ You receive OpenCV 5 measurements of uploaded street footage and a vision model'
 Investigate with tools, then call submit_recommendation exactly once. A supervisor approves every action.
 
 How to investigate (call tools before deciding; several calls in one turn are fine):
-- Always call get_weather and get_site_history.
-- Call find_nearby_reports when the inspection has coordinates.
+- Always call get_site_history. Call get_weather and find_nearby_reports when the inspection has coordinates.
+- If a tool says its data is unavailable, carry on without it and mention that in your reasoning.
 - Call compare_with_previous_inspection when the site has earlier inspections.
 - Call inspect_drain_closeup for each drain listed in real_drains (OpenCV zoom: are the grate openings visible?).
   Never for drains the severity check rejected.
@@ -115,7 +115,7 @@ def run(inspection_id: str, region: str, model_id: str, progress=None) -> dict:
             if ctx.recommendation or nudges >= 2:
                 break
             nudges += 1                         # model stopped without submitting: tell it exactly what is left
-            missing = [t for t in ctx.required_checks() if t not in ctx.called]
+            missing = [t for t in ctx.required_checks() if t not in ctx.attempted]
             todo = (f"First call: {', '.join(missing)}. Then call submit_recommendation."
                     if missing else "Now call submit_recommendation with your decision.")
             trace.append({"type": "thought", "text": f"(DrainWatch reminded the agent: {todo})"})

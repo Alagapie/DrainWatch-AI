@@ -1,0 +1,84 @@
+{# M6 supervisor decision. Expects: insp, agent, review_options #}
+{% set rec = agent.recommendation %}
+{% set rv = insp.review %}
+{% set action_labels = {"create_work_order": "Create a work order", "request_more_footage": "Request better footage",
+                        "route_to_supervisor": "Send to a senior supervisor", "monitor": "Monitor, no work now"} %}
+{% set crew_labels = {"drain_cleaning": "Drain-cleaning crew", "road_repair": "Road-repair crew",
+                      "engineering_review": "Engineering review", "none": "No crew"} %}
+{% set decision_class = {"approve": "ok", "edit": "ok", "more_footage": "info", "reject": "error"} %}
+
+<section class="card decision-card" id="decision">
+  <div class="card-head">
+    <h2><svg class="icon"><use href="#i-user-check"/></svg> Supervisor decision</h2>
+    {% if rv %}<span class="pill pill-{{ decision_class[rv.decision] }}">{{ rv.label }}</span>{% endif %}
+  </div>
+
+  {% if rv %}
+  <div class="decision-done decision-{{ decision_class[rv.decision] }}">
+    <p class="decision-line"><strong>{{ rv.label }}</strong> by {{ rv.reviewer }} · {{ rv.at | ago }}</p>
+    {% if rv.decision == 'reject' %}
+    <p>No action will be taken. The agent had recommended {{ rv.agent_recommendation.priority }} · {{ action_labels.get(rv.agent_recommendation.action, rv.agent_recommendation.action) }}.</p>
+    {% elif rv.decision == 'more_footage' %}
+    <p>The reporter should send clearer footage. No crew is sent until then.</p>
+    {% else %}
+    <p>Final decision: <strong>{{ rv.final.priority }}</strong> · {{ action_labels.get(rv.final.action, rv.final.action) }}
+      {% if rv.final.crew != 'none' %} · {{ crew_labels.get(rv.final.crew, rv.final.crew) }}{% endif %}</p>
+    {% endif %}
+    {% if rv.changed %}<p class="muted small">Changed from the agent's recommendation: {{ rv.changed | join(', ') }}.</p>{% endif %}
+    {% if rv.note %}<p class="decision-note">“{{ rv.note }}”</p>{% endif %}
+  </div>
+
+  {% if rv.work_order %}
+  {% set wo = rv.work_order %}
+  <div class="wo wo-{{ wo.status }}">
+    <div class="wo-head">
+      <span class="wo-id">{{ wo.id }}</span>
+      <span class="pill {{ 'pill-ok' if wo.status == 'done' else 'pill-warn' }}">{{ 'Done' if wo.status == 'done' else 'Open' }}</span>
+    </div>
+    <p><strong>{{ wo.priority }}</strong> · {{ crew_labels.get(wo.crew, wo.crew) }} · due {{ wo.due | datetime }}</p>
+    <p class="muted small">{{ wo.summary }}</p>
+    {% if wo.status == 'done' %}
+      <p class="small">Completed by {{ wo.completed_by }} · {{ wo.completed_at | ago }}{% if wo.completion_note %}: “{{ wo.completion_note }}”{% endif %}</p>
+    {% else %}
+    <form class="wo-complete" method="post" action="{{ url_for('inspections.complete_work_order', inspection_id=insp.inspection_id) }}">
+      <input name="who" placeholder="Your name" required>
+      <input name="note" placeholder="What was done (optional)">
+      <button class="btn btn-soft btn-sm">Mark as done</button>
+    </form>
+    {% endif %}
+  </div>
+  {% endif %}
+  <p class="muted small">To change this decision, re-run the analysis: the decision is kept in the audit trail and a new review is requested.</p>
+
+  {% else %}
+  <p class="muted">Review the recommendation above. Nothing is sent to a crew until you decide.</p>
+  <form method="post" action="{{ url_for('inspections.submit_review', inspection_id=insp.inspection_id) }}" class="decision-form" id="decision-form">
+    <div class="choices">
+      <label class="choice choice-ok"><input type="radio" name="decision" value="approve" required>
+        <span><strong>Approve</strong><small>{{ rec.priority }} · {{ action_labels.get(rec.action, rec.action) }}{% if rec.crew != 'none' %} · {{ crew_labels.get(rec.crew, rec.crew) }}{% endif %}</small></span></label>
+      <label class="choice choice-info"><input type="radio" name="decision" value="edit">
+        <span><strong>Edit and approve</strong><small>Change the priority, action or crew</small></span></label>
+      <label class="choice choice-info"><input type="radio" name="decision" value="more_footage">
+        <span><strong>Ask for better footage</strong><small>The evidence isn't enough to decide</small></span></label>
+      <label class="choice choice-error"><input type="radio" name="decision" value="reject">
+        <span><strong>Reject</strong><small>No action; a reason is required</small></span></label>
+    </div>
+
+    <div class="edit-fields" id="edit-fields" hidden>
+      <label class="field"><span>Priority</span>
+        <select name="priority">{% for p in review_options.priorities %}<option value="{{ p }}" {{ 'selected' if p == rec.priority }}>{{ p }}</option>{% endfor %}</select></label>
+      <label class="field"><span>Action</span>
+        <select name="action">{% for a in review_options.actions %}<option value="{{ a }}" {{ 'selected' if a == rec.action }}>{{ action_labels.get(a, a) }}</option>{% endfor %}</select></label>
+      <label class="field"><span>Crew</span>
+        <select name="crew">{% for c in review_options.crews %}<option value="{{ c }}" {{ 'selected' if c == rec.crew }}>{{ crew_labels.get(c, c) }}</option>{% endfor %}</select></label>
+    </div>
+
+    <div class="grid">
+      <label class="field"><span>Your name</span><input name="reviewer" required placeholder="e.g. A. Bello, Works Supervisor"></label>
+    </div>
+    <label class="field"><span>Note <em class="optional" id="note-hint">optional</em></span>
+      <textarea name="note" rows="2" placeholder="Anything the crew or the next reviewer should know"></textarea></label>
+    <div class="submit-row-inline"><button class="btn">Record decision</button></div>
+  </form>
+  {% endif %}
+</section>
