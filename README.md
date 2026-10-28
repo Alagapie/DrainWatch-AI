@@ -126,6 +126,7 @@ python -m playwright install ffmpeg
 python demo/make_clip.py demo/assets/puddle_grate.jpg demo/assets/d14_followup.mp4
 # start the app, upload puddle_grate.jpg and then d14_followup.mp4 for site D-14, then:
 python demo/record_demo.py http://127.0.0.1:5000 <follow-up-inspection-id> demo/out
+python demo/cut_short.py demo/out     # trims it to the 3-minute submission cut (1080p)
 ```
 
 ## Project structure
